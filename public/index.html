@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark light" />
+    <title>Finanz-Dashboard</title>
+    <meta name="description" content="Persoenliches Finanz-Dashboard mit taeglichen Kennzahlen und Erklaerungen." />
+    <link rel="stylesheet" href="./styles.css" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='26'%3E%F0%9F%93%88%3C/text%3E%3C/svg%3E"
+    />
+  </head>
+  <body>
+    <a class="skip-link" href="#inhalt">Zum Inhalt springen</a>
+
+    <header class="page-header">
+      <div class="wrap header-inner">
+        <div>
+          <h1>Finanz-Dashboard</h1>
+          <p class="header-meta" id="header-meta">Daten werden geladen …</p>
+        </div>
+        <button
+          type="button"
+          id="theme-toggle"
+          class="theme-toggle"
+          aria-label="Zwischen hellem und dunklem Design wechseln"
+          title="Design wechseln"
+        >
+          <span aria-hidden="true" id="theme-icon">◐</span>
+        </button>
+      </div>
+    </header>
+
+    <main class="wrap" id="inhalt">
+      <div id="status" class="status" hidden></div>
+
+      <section id="summary" class="panel" hidden aria-labelledby="summary-title">
+        <h2 id="summary-title">Gesamtbild</h2>
+        <p id="summary-text"></p>
+      </section>
+
+      <div id="groups"></div>
+
+      <section id="glossary" class="panel glossary" hidden aria-labelledby="glossary-title">
+        <p class="panel-kicker">Begriff des Tages</p>
+        <h2 id="glossary-title"></h2>
+        <p id="glossary-text"></p>
+      </section>
+    </main>
+
+    <footer class="wrap page-footer">
+      <p id="disclaimer"></p>
+      <p class="footnote">
+        Datenquellen: FRED (St. Louis Fed), stooq.com, Yahoo Finance, frankfurter (EZB), CoinGecko.
+        Alle Angaben ohne Gewaehr. Keine Anlageberatung.
+      </p>
+    </footer>
+
+    <script src="./app.js" type="module"></script>
+  </body>
+</html>

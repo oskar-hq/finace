@@ -1,0 +1,20 @@
+{
+  "name": "finance-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Persoenliches Finanz-Dashboard: taeglicher Generator (Marktdaten + KI-Erklaerungen) plus statisches Frontend.",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "update": "node --disable-warning=ExperimentalWarning src/update.js",
+    "update:no-ai": "node --disable-warning=ExperimentalWarning src/update.js --no-ai",
+    "verify": "node --disable-warning=ExperimentalWarning src/verify.js",
+    "demo": "node --disable-warning=ExperimentalWarning src/demo.js",
+    "serve": "node --disable-warning=ExperimentalWarning src/serve.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.68.0"
+  }
+}

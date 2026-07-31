@@ -1,0 +1,369 @@
+/* ---------------------------------------------------------------------------
+   Farbrollen. Beide Modi sind bewusst gewaehlt (kein automatisches Umdrehen).
+   Die Kurvenfarbe und das Auf/Ab-Paar sind auf Farbfehlsichtigkeit geprueft
+   (blau <-> rot, nicht gruen <-> rot) und tragen die Aussage nie allein:
+   Vorzeichen und Zahl stehen immer daneben.
+--------------------------------------------------------------------------- */
+:root {
+  color-scheme: dark;
+  --surface: #1a1a19;
+  --surface-raised: #232322;
+  --surface-sunken: #131312;
+  --border: #34342f;
+  --text-primary: #ffffff;
+  --text-secondary: #c3c2b7;
+  --text-muted: #8d8c83;
+  --series: #3987e5;
+  --up: #3987e5;
+  --down: #e66767;
+  --flat: #8d8c83;
+  --focus: #3987e5;
+
+  --radius: 12px;
+  --gap: 1rem;
+  --maxw: 1120px;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:where(:not([data-theme='dark'])) {
+    color-scheme: light;
+    --surface: #fcfcfb;
+    --surface-raised: #ffffff;
+    --surface-sunken: #f2f1ed;
+    --border: #dedcd4;
+    --text-primary: #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted: #6f6e69;
+    --series: #2a78d6;
+    --up: #2a78d6;
+    --down: #e34948;
+    --flat: #6f6e69;
+    --focus: #2a78d6;
+  }
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --surface: #fcfcfb;
+  --surface-raised: #ffffff;
+  --surface-sunken: #f2f1ed;
+  --border: #dedcd4;
+  --text-primary: #0b0b0b;
+  --text-secondary: #52514e;
+  --text-muted: #6f6e69;
+  --series: #2a78d6;
+  --up: #2a78d6;
+  --down: #e34948;
+  --flat: #6f6e69;
+  --focus: #2a78d6;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--surface);
+  color: var(--text-primary);
+  font: 400 16px/1.6 ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+.wrap {
+  max-width: var(--maxw);
+  margin: 0 auto;
+  padding: 0 1rem;
+}
+
+.skip-link {
+  position: absolute;
+  left: -9999px;
+}
+.skip-link:focus {
+  left: 1rem;
+  top: 1rem;
+  z-index: 10;
+  background: var(--surface-raised);
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* --- Kopf --------------------------------------------------------------- */
+.page-header {
+  border-bottom: 1px solid var(--border);
+  padding: 1.5rem 0 1.25rem;
+  margin-bottom: 1.5rem;
+}
+.header-inner {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+h1 {
+  font-size: 1.4rem;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+.header-meta {
+  margin: 0.25rem 0 0;
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+}
+.theme-toggle {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font-size: 1.1rem;
+  cursor: pointer;
+}
+.theme-toggle:hover {
+  color: var(--text-primary);
+}
+
+/* --- Bloecke ------------------------------------------------------------ */
+.panel {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.1rem 1.25rem;
+  margin-bottom: 1.5rem;
+}
+.panel h2 {
+  font-size: 1.05rem;
+  margin: 0 0 0.5rem;
+}
+.panel p {
+  margin: 0;
+  color: var(--text-secondary);
+}
+.panel-kicker {
+  margin: 0 0 0.15rem !important;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--text-muted);
+}
+.glossary {
+  border-left: 3px solid var(--series);
+}
+
+.status {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--down);
+  background: var(--surface-raised);
+  border-radius: var(--radius);
+  padding: 0.9rem 1.1rem;
+  margin-bottom: 1.5rem;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.group-title {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--text-muted);
+  margin: 0 0 0.7rem;
+}
+.group {
+  margin-bottom: 2rem;
+}
+.cards {
+  display: grid;
+  gap: var(--gap);
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+}
+
+/* --- Kennzahl-Karte ------------------------------------------------------ */
+.card {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.1rem 1.25rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.card.is-unavailable {
+  opacity: 0.75;
+}
+.card-head h3 {
+  margin: 0;
+  font-size: 0.98rem;
+  font-weight: 600;
+}
+.card-blurb {
+  margin: 0.1rem 0 0;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+/* Platz fuer zwei Zeilen reservieren, damit die Werte einer Reihe
+   auf gleicher Hoehe stehen. */
+.card-head {
+  min-height: 3.9rem;
+}
+.card-value {
+  font-size: 1.85rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+.card-value.is-empty {
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.changes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.change {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.18rem 0.6rem;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+.change-label {
+  color: var(--text-muted);
+}
+.change-value {
+  font-weight: 600;
+}
+.change-value[data-dir='up'] {
+  color: var(--up);
+}
+.change-value[data-dir='down'] {
+  color: var(--down);
+}
+.change-value[data-dir='flat'],
+.change-value[data-dir='none'] {
+  color: var(--flat);
+}
+
+.spark {
+  display: block;
+  width: 100%;
+  height: 56px;
+  overflow: visible;
+  touch-action: pan-y;
+}
+.spark-line {
+  fill: none;
+  stroke: var(--series);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.spark-end {
+  fill: var(--series);
+  stroke: var(--surface-raised);
+  stroke-width: 2;
+}
+.spark-crosshair {
+  stroke: var(--text-muted);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+.spark-hit {
+  fill: transparent;
+  cursor: crosshair;
+}
+.spark-caption {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  min-height: 1.1em;
+  margin: -0.4rem 0 0;
+}
+
+.explanation {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+.card-note {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.card-foot {
+  margin-top: auto;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+details.table-view summary {
+  cursor: pointer;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+details.table-view table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 0.5rem;
+  font-size: 0.75rem;
+}
+details.table-view th,
+details.table-view td {
+  text-align: left;
+  padding: 0.2rem 0.4rem 0.2rem 0;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+details.table-view td:last-child,
+details.table-view th:last-child {
+  text-align: right;
+}
+
+/* --- Fuss ---------------------------------------------------------------- */
+.page-footer {
+  border-top: 1px solid var(--border);
+  padding-top: 1rem;
+  padding-bottom: 2.5rem;
+  margin-top: 1rem;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+.page-footer p {
+  margin: 0 0 0.4rem;
+}
+
+@media (max-width: 480px) {
+  .cards {
+    grid-template-columns: 1fr;
+  }
+  .card-value {
+    font-size: 1.6rem;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .card {
+    transition: border-color 0.15s ease;
+  }
+}
