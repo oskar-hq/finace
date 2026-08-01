@@ -16,7 +16,7 @@ import { collectMetric } from './providers/index.js';
 import { buildSnapshot, deriveSeries } from './lib/analyze.js';
 import { writeJsonAtomic } from './lib/output.js';
 import { generateExplanations } from './ai/explain.js';
-import { pickGlossaryTerm } from './ai/glossary.js';
+import { chooseGlossaryTerm, markGlossaryTermUsed } from './ai/glossary.js';
 import { today, shiftDays } from './lib/dates.js';
 
 const noAiFlag = process.argv.includes('--no-ai');
@@ -99,7 +99,7 @@ async function main() {
   });
 
   // --- 4. KI-Erklaerungen (genau ein Call) --------------------------------
-  const glossaryTerm = pickGlossaryTerm(db, runDate);
+  const glossaryTerm = chooseGlossaryTerm(db);
   const ai = await generateExplanations(
     snapshots,
     metricsById,
@@ -113,9 +113,17 @@ async function main() {
     }),
   );
 
+  // Ohne Erklaerung bleibt das Feld ganz weg - das Frontend soll keinen
+  // leeren Kasten rendern muessen.
   for (const snap of snapshots) {
-    snap.explanation = ai.explanations.get(snap.id) ?? null;
+    const text = ai.explanations.get(snap.id);
+    if (text) snap.explanation = text;
   }
+
+  // Der Begriff des Tages gilt erst als verbraucht, wenn er auch erklaert
+  // wurde. Sonst wandert die Rotation bei jedem Lauf ohne Key weiter.
+  const hasGlossaryText = Boolean(glossaryTerm && ai.glossary);
+  if (hasGlossaryText) markGlossaryTermUsed(db, glossaryTerm, runDate);
 
   // --- 5. Ausgabe ----------------------------------------------------------
   const payload = {
@@ -129,12 +137,15 @@ async function main() {
       error: ai.error,
       usage: ai.usage,
       summary: ai.summary,
+      // Der Hinweis gehoert nur dorthin, wo es auch KI-Texte gibt.
       disclaimer:
-        'Die Erklaerungen sind KI-generiert und beruhen ausschliesslich auf den angezeigten ' +
-        'Zahlen sowie allgemeinen Marktzusammenhaengen - nicht auf aktuellen Nachrichten. ' +
-        'Keine Anlageberatung.',
+        ai.status === 'ok'
+          ? 'Die Erklaerungen sind KI-generiert und beruhen ausschliesslich auf den angezeigten ' +
+            'Zahlen sowie allgemeinen Marktzusammenhaengen - nicht auf aktuellen Nachrichten. ' +
+            'Keine Anlageberatung.'
+          : null,
     },
-    glossary: glossaryTerm ? { term: glossaryTerm, text: ai.glossary } : null,
+    glossary: hasGlossaryText ? { term: glossaryTerm, text: ai.glossary } : null,
     stats: { ok: okCount, failed: failCount, duration_ms: Date.now() - startedAt.getTime() },
     metrics: snapshots,
   };

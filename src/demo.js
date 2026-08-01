@@ -116,8 +116,8 @@ writeJsonAtomic(config.outputPath, {
       'Demo-Modus: Alle Zahlen auf dieser Seite sind synthetisch erzeugt und haben nichts mit ' +
       'echten Marktdaten zu tun. Sie dienen nur dazu, das Layout zu pruefen.',
     disclaimer:
-      'Die Erklaerungen sind KI-generiert und beruhen ausschliesslich auf den angezeigten Zahlen ' +
-      'sowie allgemeinen Marktzusammenhaengen - nicht auf aktuellen Nachrichten. Keine Anlageberatung.',
+      'Demo-Modus: Die Texte auf dieser Seite sind Platzhalter, keine echten KI-Erklaerungen. ' +
+      'Keine Anlageberatung.',
   },
   glossary: {
     term: 'Realzins',

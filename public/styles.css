@@ -173,6 +173,10 @@ h1 {
   color: var(--text-secondary);
   font-size: 0.9rem;
 }
+/* Blosser Hinweis (z.B. Betrieb ohne KI) - kein Warnton. */
+.status[data-tone='info'] {
+  border-left-color: var(--flat);
+}
 
 .group-title {
   font-size: 0.78rem;

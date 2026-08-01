@@ -286,9 +286,11 @@ function buildCard(metric, windows) {
 
 /* --- Seite zusammenbauen --------------------------------------------------- */
 
-function showStatus(message) {
+/** tone: 'warn' fuer echte Probleme, 'info' fuer blosse Hinweise. */
+function showStatus(message, tone = 'warn') {
   const box = document.getElementById('status');
   box.textContent = message;
+  box.dataset.tone = tone;
   box.hidden = false;
 }
 
@@ -307,6 +309,8 @@ function render(data) {
   // Hinweise, wenn etwas nicht rund gelaufen ist.
   const ageHours = (Date.now() - generated.getTime()) / 3600000;
   const problems = [];
+  const hints = [];
+
   if (ageHours > 30) {
     problems.push(
       `Die Daten sind ${Math.floor(ageHours / 24)} Tage alt – laeuft der taegliche Cronjob noch?`,
@@ -315,13 +319,16 @@ function render(data) {
   if (data.ai?.status === 'error') {
     problems.push(`Die Erklaerungen fehlen heute (${data.ai.error ?? 'unbekannter Fehler'}).`);
   } else if (data.ai?.status === 'skipped' && !data.demo) {
-    problems.push('Die Erklaerungen wurden uebersprungen (kein API-Key oder SKIP_AI=1).');
+    // Kein Fehler, sondern eine gueltige Betriebsart: Dashboard ohne KI.
+    hints.push('Dieses Dashboard laeuft ohne Erklaerungen (kein ANTHROPIC_API_KEY oder SKIP_AI=1).');
   }
   const failed = (data.metrics ?? []).filter((m) => m.status === 'unavailable');
   if (failed.length > 0) {
     problems.push(`Ohne Daten: ${failed.map((m) => m.label).join(', ')}.`);
   }
-  if (problems.length > 0) showStatus(problems.join(' '));
+
+  if (problems.length > 0) showStatus([...problems, ...hints].join(' '), 'warn');
+  else if (hints.length > 0) showStatus(hints.join(' '), 'info');
 
   if (data.ai?.summary) {
     document.getElementById('summary-text').textContent = data.ai.summary;
@@ -344,14 +351,16 @@ function render(data) {
     container.append(el('section', { class: 'group' }, [el('h2', { class: 'group-title', text: name }), cards]));
   }
 
-  if (data.glossary?.term) {
+  // Ohne Erklaerungstext gibt es nichts zu zeigen - dann bleibt der Block weg.
+  if (data.glossary?.term && data.glossary.text) {
     document.getElementById('glossary-title').textContent = data.glossary.term;
-    document.getElementById('glossary-text').textContent =
-      data.glossary.text ?? 'Fuer diesen Begriff liegt heute keine Erklaerung vor.';
+    document.getElementById('glossary-text').textContent = data.glossary.text;
     document.getElementById('glossary').hidden = false;
   }
 
-  document.getElementById('disclaimer').textContent = data.ai?.disclaimer ?? '';
+  const disclaimer = document.getElementById('disclaimer');
+  if (data.ai?.disclaimer) disclaimer.textContent = data.ai.disclaimer;
+  else disclaimer.hidden = true;
 }
 
 /* --- Design-Umschalter ----------------------------------------------------- */

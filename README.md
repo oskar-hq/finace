@@ -13,7 +13,8 @@ Zwei getrennte Teile:
    ausschliesslich diese JSON-Datei. Keine API-Calls, keine Secrets im Browser,
    sofortiger Seitenaufbau.
 
-Pro Tag faellt genau **ein** Anthropic-Call an (alle Kennzahlen in einer Anfrage).
+Pro Tag faellt genau **ein** Anthropic-Call an (alle Kennzahlen in einer Anfrage) –
+und auch der ist optional: ohne API-Key laeuft alles durch, nur eben ohne Texte.
 
 ---
 
@@ -22,12 +23,19 @@ Pro Tag faellt genau **ein** Anthropic-Call an (alle Kennzahlen in einer Anfrage
 ```bash
 git clone <repo> && cd finace
 npm install
-cp .env.example .env      # ANTHROPIC_API_KEY eintragen, FRED_API_KEY optional
+cp .env.example .env      # beide Keys sind optional, siehe unten
 
 npm run verify            # Welche Datenquellen sind erreichbar?
 npm run update            # Daten holen + Erklaerungen erzeugen
 npm run serve             # http://127.0.0.1:8080
 ```
+
+**Beide API-Keys sind optional.** Ohne `ANTHROPIC_API_KEY` laeuft `npm run update`
+vollstaendig durch und schreibt die Marktdaten – es entfallen nur die
+Erklaerungstexte, die Gesamteinschaetzung und der Begriff des Tages. Die Karten
+zeigen dann Wert, Veraenderungen und Verlauf ohne Textblock; oben steht ein
+dezenter Hinweis. Sobald ein Key hinterlegt ist, sind die Texte beim naechsten
+Lauf wieder da – ohne weitere Aenderung.
 
 Ohne API-Keys und ohne Internet zuerst nur das Layout ansehen:
 
@@ -168,8 +176,24 @@ Begriffe durchlaufen, bevor sich einer wiederholt.
 **Kosten:** rund 1.400 Eingabe- und 1.500 Ausgabe-Tokens pro Lauf. Mit Haiku 4.5
 sind das grob 1 US-Cent pro Tag, also etwa 3 US-Dollar im Jahr.
 
-Faellt der Call aus (kein Key, Netzwerkfehler, Rate-Limit), erscheinen die Zahlen
-trotzdem – nur ohne Erklaerungstexte, mit einem Hinweis oben auf der Seite.
+### Betrieb ohne Key
+
+Der Anthropic-Call ist durchgehend optional. Ist kein `ANTHROPIC_API_KEY`
+gesetzt (oder steht `SKIP_AI=1`), wird er ohne Fehlermeldung uebersprungen:
+
+* `npm run update` laeuft normal durch und schreibt `latest.json` mit allen
+  Marktdaten. Der Exit-Code haengt allein daran, ob Daten geholt werden konnten –
+  ein fehlender Key fuehrt nie zu Exit-Code 1.
+* Kennzahlen ohne Erklaerung enthalten das Feld `explanation` gar nicht erst;
+  das Frontend rendert dann schlicht keinen Textblock – keinen leeren Kasten.
+* Gesamtbild, Begriff des Tages und der KI-Hinweis im Fuss erscheinen nur,
+  wenn es dazu auch Text gibt.
+* Der Begriff des Tages wird erst dann als „verbraucht" vermerkt, wenn er
+  wirklich erklaert wurde. Ohne Key wandert die Rotation also nicht weiter,
+  und der erste Lauf mit Key faengt sauber vorne an.
+
+Dasselbe gilt, wenn der Call scheitert (Netzwerkfehler, Rate-Limit): die Zahlen
+erscheinen trotzdem, oben steht dann ein Hinweis mit der Fehlerursache.
 
 ---
 
@@ -261,7 +285,10 @@ Ehrlich dazugesagt, damit klar ist, was hier bereits lief und was nicht:
 * **Getestet:** Datenbank-Schema und Zeitreihen-Logik, Berechnung der
   Veraenderungen, abgeleitete Kennzahlen, Glossar-Rotation, Prompt-Aufbau,
   JSON-Ausgabe, der statische Server sowie das Frontend in Hell, Dunkel und auf
-  Mobilgeroessen (ueber `npm run demo`).
+  Mobilgeroessen (ueber `npm run demo`). Ebenfalls geprueft: ein kompletter
+  Lauf ohne `ANTHROPIC_API_KEY` gegen eine lokal simulierte Datenquelle –
+  Exit-Code 0, vollstaendige `latest.json`, und im Frontend weder leere
+  Textkaesten noch ein Glossarblock ohne Inhalt.
 * **Nicht getestet:** die tatsaechlichen HTTP-Abrufe bei stooq, Yahoo, FRED,
   frankfurter und CoinGecko sowie der Anthropic-Call – die Entwicklungsumgebung
   hatte weder Zugriff auf diese Hosts noch einen API-Key. Die Symbole stammen

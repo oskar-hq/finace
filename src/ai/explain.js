@@ -19,8 +19,10 @@ export async function generateExplanations(snapshots, metricsById, glossaryTerm,
     return { ...empty, status: 'skipped', error: null };
   }
   if (!config.anthropicApiKey) {
-    log.warn('ANTHROPIC_API_KEY fehlt - Dashboard wird ohne Erklaerungen erzeugt');
-    return { ...empty, status: 'skipped', error: 'ANTHROPIC_API_KEY nicht gesetzt' };
+    // Kein Fehlerfall: ohne Key laeuft der Generator vollstaendig durch und
+    // schreibt die Marktdaten - nur eben ohne Erklaerungstexte.
+    log.info('Kein ANTHROPIC_API_KEY gesetzt - Dashboard wird ohne Erklaerungen erzeugt');
+    return { ...empty, status: 'skipped', error: null };
   }
 
   const client = new Anthropic({ apiKey: config.anthropicApiKey });
