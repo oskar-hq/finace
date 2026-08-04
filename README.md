@@ -76,9 +76,10 @@ src/
     analyze.js          Veraenderungen, abgeleitete Reihen, Snapshots
     output.js           JSON atomar schreiben, vorherige Ausgabe lesen
     sdmx.js             CSV-Parser fuer Bundesbank und EZB
+    redact.js           API-Keys aus URLs entfernen, bevor sie geloggt werden
   providers/            eine Datei pro Datenquelle, einzeln austauschbar
     index.js            Registry, Fallback-Kette, Ratenlimit
-    twelvedata.js  stooq.js  yahoo.js  fred.js
+    twelvedata.js  cboe.js  stooq.js  yahoo.js  fred.js
     bundesbank.js  ecb.js  frankfurter.js  coingecko.js
   ai/
     prompt.js           System-Prompt, User-Prompt, JSON-Schema
@@ -103,9 +104,9 @@ data/finance.db         <- erzeugt, nicht eingecheckt
 | **Bundesanleihe 10J** | **Bundesbank** → EZB-Zinskurve (Euroraum AAA) → FRED (monatlich) |
 | US-Dollar-Index | FRED `DTWEXBGS` (handelsgewichtet) → Yahoo `DX-Y.NYB` (DXY) |
 | EUR/USD | frankfurter (EZB) → Twelve Data `EUR/USD` → stooq `eurusd` |
-| DAX | **Twelve Data `DAX`** → stooq `^dax` → Yahoo `^GDAXI` |
+| DAX | Twelve Data `DAX` → Yahoo `^GDAXI` → stooq `^dax` |
 | Bitcoin | CoinGecko → Twelve Data `BTC/USD` → stooq `btcusd` |
-| VIX | **Twelve Data `VIX`** → stooq `^vix` → Yahoo `^VIX` |
+| VIX | **CBOE (offiziell, keyfrei)** → Twelve Data `VIX` → Yahoo `^VIX` → stooq `^vix` |
 
 ### Warum Twelve Data vorne steht
 
@@ -123,14 +124,58 @@ Zwei Einschraenkungen, die du kennen solltest:
 * Der Free-Tier erlaubt **800 Abrufe pro Tag und 8 pro Minute**. Das Ratenlimit
   haelt der Generator selbst ein (`minIntervalMs` im Provider); ein Lauf mit
   mehreren Twelve-Data-Kennzahlen dauert dadurch ein paar Sekunden laenger.
-* **Forex und Krypto** (`XAU/USD`, `EUR/USD`, `BTC/USD`) sind im kostenlosen
-  Tarif enthalten. Bei **Indizes** (`DAX`, `VIX`) haengt es vom Tarif ab – falls
-  Twelve Data dort mit „not available on your plan" antwortet, sagt dir
-  `npm run verify` das im Klartext, und die Kette faellt automatisch auf stooq
-  bzw. Yahoo zurueck.
+* **Forex und Krypto** (`XAU/USD`, `EUR/USD`, `BTC/USD`) funktionieren im
+  kostenlosen Tarif. **Indizes sind das Problem:** `DAX` und `VIX` antworten
+  mit HTTP 404 – Twelve Data kennt sie unter diesem Namen nicht.
 
 FRED scheidet fuer Gold uebrigens aus: die Reihe `GOLDAMGBD228NLBM` wurde
 eingestellt und liefert keine neuen Werte mehr.
+
+### Das richtige Twelve-Data-Symbol finden
+
+Twelve Data benennt Indizes oft anders als andere Anbieter. Statt zu raten:
+**`npm run verify` fragt bei einem 404 automatisch deren Symbolsuche** und
+listet die Treffer mit Boerse, Land und Instrumententyp auf. Das passende
+Symbol dann in `config/metrics.js` eintragen – fertig.
+
+Beim DAX habe ich bereits `exchange: 'XETR'` entfernt, weil genau diese
+Kombination den 404 ausgeloest hat.
+
+### VIX und DAX ohne Twelve Data
+
+**VIX ist geloest:** Die CBOE berechnet den Index selbst und stellt die
+komplette Tageshistorie als CSV bereit – kein Key, keine Bot-Sperre, offizielle
+Quelle. Der Provider schneidet direkt auf den angefragten Zeitraum zu, damit
+nicht bei jedem Lauf 9000 Zeilen seit 1990 in die Datenbank wandern.
+
+**Beim DAX gibt es keine vergleichbar saubere Gratisquelle.** Die Deutsche
+Boerse veroeffentlicht keine freie Kurs-API. Bleiben Twelve Data (mit dem
+richtigen Symbol, siehe oben), Yahoo (siehe naechster Abschnitt) und stooq.
+
+Bewusst **nicht** eingebaut: ein Deutschland-ETF wie `EWG` als Ersatz. Der
+laeuft zwar auf dem freien Tarif, ist aber MSCI Germany in Dollar – die Karte
+hiesse „DAX" und zeigte ~30 statt ~18.500. Eine ehrlich leere Karte ist besser
+als eine falsche Zahl unter richtigem Namen.
+
+### Yahoo: warum HTTP 429, und was dagegen hilft
+
+Yahoos 429 von Server-IPs ist meist **kein** Ratenlimit, sondern eine fehlende
+Sitzung. Der Provider baut sie jetzt nach: erst ein Consent-Cookie von
+`fc.yahoo.com` holen, damit einen „Crumb" von `/v1/test/getcrumb` abrufen, und
+beides an die eigentliche Abfrage haengen. Die Sitzung gilt 30 Minuten und wird
+fuer alle Kennzahlen eines Laufs wiederverwendet; laeuft sie ab, wird einmal
+automatisch erneuert.
+
+Das ist ein Workaround fuer eine undokumentierte Schnittstelle und kann
+jederzeit brechen – deshalb steht Yahoo nirgends an erster Stelle. Klappt der
+Sitzungsaufbau nicht, sagt `verify` das jetzt im Klartext statt nur „429".
+
+### stooq
+
+stooq liefert von Rechenzentrums-IPs eine JS-Challenge statt CSV. Der Provider
+erkennt das am HTML-Anfang, probiert zusaetzlich `stooq.pl` und meldet dann
+verstaendlich, dass der Bot-Schutz zugeschlagen hat. Vom Heimanschluss aus
+funktioniert stooq weiterhin – deshalb bleibt es als letztes Glied drin.
 
 ### Deutsche Staatsanleihen
 
@@ -362,8 +407,14 @@ auch wenn die Seite keine Geheimnisse enthaelt.
 
 ## Sicherheit
 
-* `ANTHROPIC_API_KEY` und `FRED_API_KEY` stehen ausschliesslich in `.env` und
-  werden nur serverseitig gelesen. `.env` ist per `.gitignore` ausgeschlossen.
+* Alle Keys (`ANTHROPIC_API_KEY`, `TWELVEDATA_API_KEY`, `FRED_API_KEY`) stehen
+  ausschliesslich in `.env` und werden nur serverseitig gelesen. `.env` ist per
+  `.gitignore` ausgeschlossen.
+* **Keys tauchen nie in Fehlermeldungen auf.** Twelve Data und FRED erwarten den
+  Schluessel als Query-Parameter; ohne Gegenmassnahme landet er damit in jeder
+  Fehlerzeile – also in der Konsole, in `/var/log` und in jedem Screenshot, den
+  man zur Fehlersuche weiterschickt. `src/lib/redact.js` ersetzt bekannte
+  Key-Parameter durch `***`, bevor eine URL in eine Meldung geschrieben wird.
 * Das Frontend bekommt nur die fertige JSON-Datei – dort steht kein Key und
   keine URL mit Key.
 * Auch die SQLite-Datenbank (`data/`) und die erzeugte `public/data/latest.json`
@@ -388,14 +439,19 @@ Ehrlich dazugesagt, damit klar ist, was hier bereits lief und was nicht:
   1920×1080 und 1366×768 gemessen – in beiden Faellen exakt eine
   Bildschirmseite, kein Scrollen –, und das automatische Nachladen wurde
   geprueft, indem die JSON-Datei bei offener Seite geaendert wurde.
-* **Nicht getestet:** die tatsaechlichen HTTP-Abrufe bei Twelve Data,
+  Die CSV-Parser sind gegen nachgebaute Antworten getestet: der SDMX-Parser
+  gegen EZB-Format (Komma), Bundesbank-Format (Semikolon, deutsche
+  Dezimalkommas), Monatswerte, fehlende Werte (`.`) und eine Datei ohne
+  Kopfzeile; der CBOE-Parser gegen gemischte Datumsformate (`M/D/YYYY` und ISO)
+  samt Zeitraumfilter. Die Key-Redaktion ist gegen eine echte Twelve-Data-URL
+  geprueft.
+* **Nicht getestet:** die tatsaechlichen HTTP-Abrufe bei Twelve Data, CBOE,
   Bundesbank, EZB, stooq, Yahoo, FRED, frankfurter und CoinGecko sowie der
-  Anthropic-Call – die Entwicklungsumgebung hatte weder Zugriff auf diese Hosts
-  noch API-Keys. Symbole und Reihenschluessel stammen aus der Dokumentation der
-  jeweiligen Anbieter und sind nicht gegen die Live-API geprueft. Besonders im
-  Blick behalten: ob Twelve Data `DAX` und `VIX` im kostenlosen Tarif liefert,
-  und ob der Bundesbank-CSV-Parser das reale Format trifft (er ist bewusst
-  tolerant gebaut und akzeptiert Komma wie Semikolon).
+  Anthropic-Call – die Entwicklungsumgebung erreicht keinen dieser Hosts.
+  Besonders im Blick behalten: welches Twelve-Data-Symbol der DAX wirklich hat
+  (`verify` schlaegt Kandidaten vor), ob der Yahoo-Sitzungsaufbau von deiner
+  Server-IP durchgeht, und ob die Bundesbank-Reihe genau dieses CSV-Format
+  liefert.
 
 Genau dafuer gibt es `npm run verify`: der Befehl probiert jede einzelne Quelle
 aus und zeigt pro Zeile, ob sie antwortet, wie aktuell sie ist und welchen Wert

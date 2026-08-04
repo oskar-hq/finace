@@ -53,7 +53,9 @@ export async function fetchSeries({ symbol, exchange }, { from, to }) {
     const hint =
       json.code === 403 || /plan|upgrade|not available/i.test(json.message ?? '')
         ? ' (Symbol vermutlich nicht im kostenlosen Tarif enthalten)'
-        : '';
+        : json.code === 404
+          ? ' (Symbol so nicht vorhanden - npm run verify schlaegt Alternativen vor)'
+          : '';
     throw new Error(`Twelve Data: ${json.message ?? 'unbekannter Fehler'}${hint}`);
   }
   if (!Array.isArray(json?.values)) {
@@ -67,4 +69,23 @@ export async function fetchSeries({ symbol, exchange }, { from, to }) {
     if (/^\d{4}-\d{2}-\d{2}$/.test(date) && Number.isFinite(value)) series.push({ date, value });
   }
   return series;
+}
+
+/**
+ * Symbolsuche - fuer die Fehlersuche gedacht, nicht fuer den Datenabruf.
+ * Twelve Data benennt Indizes oft anders als andere Anbieter (der DAX ist
+ * z.B. nicht unbedingt "DAX"). npm run verify ruft das automatisch auf, wenn
+ * ein Symbol nicht gefunden wurde, und zeigt die Treffer an.
+ *
+ * @returns {Promise<Array<{symbol,instrument_name,exchange,country,instrument_type}>>}
+ */
+export async function symbolSearch(query, limit = 6) {
+  const params = new URLSearchParams({ symbol: query, outputsize: String(limit) });
+  if (config.twelveDataApiKey) params.set('apikey', config.twelveDataApiKey);
+
+  const json = await fetchJson(`https://api.twelvedata.com/symbol_search?${params}`, {
+    headers: { accept: 'application/json' },
+    retries: 0,
+  });
+  return Array.isArray(json?.data) ? json.data.slice(0, limit) : [];
 }

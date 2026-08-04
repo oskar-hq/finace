@@ -12,6 +12,7 @@
 import { METRICS } from '../config/metrics.js';
 import { config } from './lib/env.js';
 import { PROVIDERS } from './providers/index.js';
+import { symbolSearch } from './providers/twelvedata.js';
 import { today, shiftDays, daysBetween } from './lib/dates.js';
 
 const range = { from: shiftDays(today(), -30), to: today() };
@@ -34,6 +35,33 @@ console.log(
 console.log(`FRED_API_KEY: ${config.fredApiKey ? 'gesetzt' : 'NICHT gesetzt (FRED wird uebersprungen)'}`);
 console.log(`ANTHROPIC_API_KEY: ${config.anthropicApiKey ? 'gesetzt' : 'NICHT gesetzt (keine Erklaerungen)'}`);
 console.log('');
+
+/**
+ * Wenn Twelve Data ein Symbol nicht kennt, direkt deren Symbolsuche befragen
+ * und die Treffer anzeigen. Erspart das Raten in config/metrics.js.
+ */
+async function suggestTwelveDataSymbols(spec, err) {
+  if (spec.source !== 'twelvedata') return;
+  if (!/404|not found|nicht vorhanden/i.test(err.message)) return;
+
+  try {
+    const hits = await symbolSearch(spec.symbol);
+    if (hits.length === 0) {
+      console.log(`      ${DIM}Twelve Data kennt kein Symbol zu "${spec.symbol}".${RESET}`);
+      return;
+    }
+    console.log(`      ${DIM}Twelve Data kennt stattdessen:${RESET}`);
+    for (const hit of hits) {
+      const parts = [hit.instrument_name, hit.exchange, hit.country, hit.instrument_type]
+        .filter(Boolean)
+        .join(' · ');
+      console.log(`      ${DIM}  ${String(hit.symbol).padEnd(12)} ${parts}${RESET}`);
+    }
+    console.log(`      ${DIM}  -> passendes Symbol in config/metrics.js eintragen${RESET}`);
+  } catch {
+    // Symbolsuche ist nur Komfort - Fehler hier nicht weiter melden.
+  }
+}
 
 let anyChainOk = true;
 
@@ -81,6 +109,7 @@ for (const metric of METRICS) {
       chainOk = true;
     } catch (err) {
       console.log(`${name}${RED}Fehler${RESET} - ${err.message}`);
+      await suggestTwelveDataSymbols(spec, err);
     }
   }
 

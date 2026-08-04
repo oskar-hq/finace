@@ -6,6 +6,7 @@ import * as coingecko from './coingecko.js';
 import * as twelvedata from './twelvedata.js';
 import * as bundesbank from './bundesbank.js';
 import * as ecb from './ecb.js';
+import * as cboe from './cboe.js';
 import { log } from '../lib/log.js';
 
 /**
@@ -19,7 +20,10 @@ import { log } from '../lib/log.js';
  * anlegt und es hier eintraegt - der Rest des Systems bleibt unberuehrt.
  */
 export const PROVIDERS = Object.fromEntries(
-  [stooq, yahoo, fred, frankfurter, coingecko, twelvedata, bundesbank, ecb].map((p) => [p.id, p]),
+  [stooq, yahoo, fred, frankfurter, coingecko, twelvedata, bundesbank, ecb, cboe].map((p) => [
+    p.id,
+    p,
+  ]),
 );
 
 /**

@@ -159,9 +159,14 @@ export const METRICS = [
     blurb: 'Deutscher Leitindex (Performanceindex)',
     format: { style: 'decimal', digits: 2 },
     providers: [
-      { source: 'twelvedata', symbol: 'DAX', exchange: 'XETR', variant: 'DAX Performanceindex' },
-      { source: 'stooq', symbol: '^dax', variant: 'DAX Performanceindex' },
+      // Ohne exchange-Angabe: mit "exchange=XETR" antwortet Twelve Data mit 404.
+      // Findet es das Symbol nicht, schlaegt "npm run verify" Alternativen vor.
+      { source: 'twelvedata', symbol: 'DAX', variant: 'DAX Performanceindex' },
       { source: 'yahoo', symbol: '^GDAXI', variant: 'DAX Performanceindex' },
+      { source: 'stooq', symbol: '^dax', variant: 'DAX Performanceindex' },
+      // Bewusst KEIN Ersatz ueber einen Deutschland-ETF (z.B. EWG): das waere
+      // ein anderer Index in anderer Waehrung. Die Karte hiesse "DAX" und
+      // zeigte ~30 statt ~18.500. Lieber ehrlich "nicht verfuegbar".
     ],
     aiHint:
       'Der DAX ist ein Performanceindex - Dividenden sind eingerechnet, er steigt dadurch strukturell staerker ' +
@@ -190,9 +195,12 @@ export const METRICS = [
     optional: true,
     format: { style: 'decimal', digits: 2 },
     providers: [
+      // Die CBOE berechnet den VIX selbst und stellt die Historie als CSV
+      // bereit: kein Key, keine Bot-Sperre, offizielle Quelle.
+      { source: 'cboe', symbol: 'VIX', variant: 'CBOE VIX' },
       { source: 'twelvedata', symbol: 'VIX', variant: 'CBOE VIX' },
-      { source: 'stooq', symbol: '^vix', variant: 'CBOE VIX' },
       { source: 'yahoo', symbol: '^VIX', variant: 'CBOE VIX' },
+      { source: 'stooq', symbol: '^vix', variant: 'CBOE VIX' },
     ],
     aiHint:
       'Der VIX misst die vom Optionsmarkt erwartete Schwankungsbreite des S&P 500 fuer die naechsten 30 Tage. ' +

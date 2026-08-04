@@ -1,5 +1,7 @@
 /** HTTP-Helfer mit Timeout und Retry - bewusst ohne externe Abhaengigkeit. */
 
+import { redactUrl } from './redact.js';
+
 const UA =
   'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) ' +
   'Chrome/124.0 Safari/537.36 finance-dashboard/1.0';
@@ -40,7 +42,8 @@ export async function fetchText(url, opts = {}) {
       clearTimeout(timer);
     }
   }
-  throw new Error(`${lastErr.message} (${url})`);
+  // Niemals die rohe URL - sie kann einen API-Key als Query-Parameter tragen.
+  throw new Error(`${lastErr.message} (${redactUrl(url)})`);
 }
 
 export async function fetchJson(url, opts = {}) {
@@ -48,6 +51,6 @@ export async function fetchJson(url, opts = {}) {
   try {
     return JSON.parse(text);
   } catch {
-    throw new Error(`Antwort ist kein gueltiges JSON (${url})`);
+    throw new Error(`Antwort ist kein gueltiges JSON (${redactUrl(url)})`);
   }
 }
