@@ -1,11 +1,17 @@
 /**
  * Generator-Skript - Einstiegspunkt fuer den taeglichen Cron-Lauf.
  *
- *   npm run update            normaler Lauf (Daten + KI)
- *   npm run update:no-ai      nur Daten holen und speichern
+ *   npm run update            voller Lauf (lange Historie + KI, falls Key da)
+ *   npm run update:no-ai      voller Lauf, ohne KI
+ *   npm run update:quick      kurzer Lauf fuer haeufige Takte (z.B. alle 15 min)
  *
  * Ablauf: Marktdaten holen -> in SQLite speichern -> Veraenderungen berechnen
  *         -> ein Anthropic-Call fuer alle Erklaerungen -> public/data/latest.json
+ *
+ * --quick holt nur wenige Tage (QUICK_FETCH_DAYS) und laesst die KI aus. Die
+ * Historie bleibt trotzdem vollstaendig, weil sie in der Datenbank steht - der
+ * kurze Lauf frischt nur die juengsten Tage auf. Damit bleibt ein
+ * 15-Minuten-Takt innerhalb der Tageskontingente der Anbieter.
  */
 
 import { METRICS, CHANGE_WINDOWS } from '../config/metrics.js';
@@ -14,20 +20,25 @@ import { log } from './lib/log.js';
 import { openDb, upsertSeries, readSeries, startRun, finishRun } from './lib/db.js';
 import { collectMetric } from './providers/index.js';
 import { buildSnapshot, deriveSeries } from './lib/analyze.js';
-import { writeJsonAtomic } from './lib/output.js';
+import { writeJsonAtomic, readPreviousOutput } from './lib/output.js';
 import { generateExplanations } from './ai/explain.js';
 import { chooseGlossaryTerm, markGlossaryTermUsed } from './ai/glossary.js';
 import { today, shiftDays } from './lib/dates.js';
 
 const noAiFlag = process.argv.includes('--no-ai');
+const quickFlag = process.argv.includes('--quick');
 
 async function main() {
   const startedAt = new Date();
   const runDate = today();
-  const range = { from: shiftDays(runDate, -config.fetchDays), to: runDate };
+  const days = quickFlag ? config.quickFetchDays : config.fetchDays;
+  const range = { from: shiftDays(runDate, -days), to: runDate };
 
-  log.info(`Lauf gestartet - Zeitraum ${range.from} bis ${range.to}`);
-  if (noAiFlag) config.skipAi = true;
+  log.info(
+    `Lauf gestartet (${quickFlag ? 'quick' : 'voll'}) - Zeitraum ${range.from} bis ${range.to}`,
+  );
+  // Ein haeufiger Takt soll nie einen KI-Call ausloesen.
+  if (noAiFlag || quickFlag) config.skipAi = true;
 
   const db = openDb();
   const runId = startRun(db);
@@ -99,7 +110,7 @@ async function main() {
   });
 
   // --- 4. KI-Erklaerungen (genau ein Call) --------------------------------
-  const glossaryTerm = chooseGlossaryTerm(db);
+  let glossaryTerm = chooseGlossaryTerm(db);
   const ai = await generateExplanations(
     snapshots,
     metricsById,
@@ -122,8 +133,33 @@ async function main() {
 
   // Der Begriff des Tages gilt erst als verbraucht, wenn er auch erklaert
   // wurde. Sonst wandert die Rotation bei jedem Lauf ohne Key weiter.
-  const hasGlossaryText = Boolean(glossaryTerm && ai.glossary);
+  let hasGlossaryText = Boolean(glossaryTerm && ai.glossary);
   if (hasGlossaryText) markGlossaryTermUsed(db, glossaryTerm, runDate);
+
+  // Texte des heutigen Tages uebernehmen, wenn dieser Lauf keine erzeugt hat.
+  // Ohne das wuerde jeder 15-Minuten-Lauf die Erklaerungen vom Morgen loeschen.
+  // Bewusst nur fuer denselben Kalendertag: eine Einschaetzung von gestern
+  // wuerde zu den heutigen Zahlen nicht mehr passen.
+  let reusedTexts = null;
+  if (ai.status !== 'ok') {
+    const previous = readPreviousOutput(config.outputPath);
+    if (previous?.data_date === runDate && previous.ai?.summary) {
+      reusedTexts = previous;
+      const previousById = new Map((previous.metrics ?? []).map((m) => [m.id, m]));
+      for (const snap of snapshots) {
+        const text = previousById.get(snap.id)?.explanation;
+        // Kein Text zu einer Kennzahl, die gerade gar keinen Wert hat.
+        if (text && !snap.explanation && snap.status !== 'unavailable') snap.explanation = text;
+      }
+      if (previous.glossary?.text) {
+        glossaryTerm = previous.glossary.term;
+        ai.glossary = previous.glossary.text;
+        hasGlossaryText = true;
+      }
+      ai.summary = previous.ai.summary;
+      log.info(`Erklaerungen vom Lauf um ${previous.generated_at} uebernommen`);
+    }
+  }
 
   // --- 5. Ausgabe ----------------------------------------------------------
   const payload = {
@@ -132,14 +168,17 @@ async function main() {
     data_date: runDate,
     windows: CHANGE_WINDOWS,
     ai: {
-      status: ai.status,
-      model: ai.status === 'ok' ? config.aiModel : null,
+      // "reused" = dieser Lauf hat keine Texte erzeugt, zeigt aber die vom
+      // heutigen Volllauf weiter.
+      status: reusedTexts ? 'reused' : ai.status,
+      model: ai.status === 'ok' ? config.aiModel : (reusedTexts?.ai?.model ?? null),
+      generated_at: reusedTexts ? reusedTexts.generated_at : null,
       error: ai.error,
       usage: ai.usage,
       summary: ai.summary,
       // Der Hinweis gehoert nur dorthin, wo es auch KI-Texte gibt.
       disclaimer:
-        ai.status === 'ok'
+        ai.status === 'ok' || reusedTexts
           ? 'Die Erklaerungen sind KI-generiert und beruhen ausschliesslich auf den angezeigten ' +
             'Zahlen sowie allgemeinen Marktzusammenhaengen - nicht auf aktuellen Nachrichten. ' +
             'Keine Anlageberatung.'

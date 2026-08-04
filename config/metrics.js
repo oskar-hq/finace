@@ -12,7 +12,8 @@
  * format      { style: 'currency'|'decimal'|'percent', currency, digits, suffix }
  * providers   Liste von Quellen, der Reihe nach probiert. Die erste, die
  *             Daten liefert, gewinnt ("graceful degradation").
- *             { source, symbol, scale?, variant?, note? }
+ *             { source, symbol, exchange?, scale?, variant?, note? }
+ *             - exchange: nur Twelve Data, grenzt mehrdeutige Symbole ein
  *             - scale:   Faktor auf den Rohwert (Default 1)
  *             - variant: Name des Index/Kontrakts. Unterscheiden sich die
  *                        Varianten zweier Provider, werden Veraenderungen
@@ -31,6 +32,8 @@ export const METRICS = [
     blurb: 'Feinunze in US-Dollar',
     format: { style: 'currency', currency: 'USD', digits: 2 },
     providers: [
+      // XAU/USD ist Forex-Klasse und damit auch im kostenlosen Twelve-Data-Tarif.
+      { source: 'twelvedata', symbol: 'XAU/USD', variant: 'XAU/USD Spot' },
       { source: 'stooq', symbol: 'xauusd', variant: 'XAU/USD Spot' },
       { source: 'yahoo', symbol: 'GC=F', variant: 'COMEX Gold Future' },
     ],
@@ -79,6 +82,38 @@ export const METRICS = [
       'Notenbankzinsen, Inflation und Risiko. Aenderungen hier wirken auf praktisch jede andere Anlageklasse.',
   },
   {
+    id: 'de10y',
+    label: 'Bundesanleihe 10 Jahre',
+    group: 'Zinsen & Waehrungen',
+    blurb: 'Rendite in Prozent p. a.',
+    format: { style: 'decimal', digits: 2, suffix: ' %' },
+    providers: [
+      {
+        // Rendite boersennotierter Bundeswertpapiere, 10 Jahre Restlaufzeit, taeglich.
+        source: 'bundesbank',
+        symbol: 'BBSIS/D.I.ZST.ZI.EUR.S1311.B.A604.R10XX.R.A.A._Z._Z.A',
+        variant: 'Bundesanleihe 10J (Bundesbank)',
+      },
+      {
+        // Naher Ersatz, aber nicht dasselbe: AAA-Emittenten des Euroraums.
+        source: 'ecb',
+        symbol: 'YC/B.U2.EUR.4F.G_N_A.SV_C_YM.SR_10Y',
+        variant: 'Euroraum AAA 10J (EZB-Zinskurve)',
+        note: 'Ersatzquelle: Euroraum-AAA-Kurve statt reiner Bundesanleihe.',
+      },
+      {
+        // Letzter Notnagel - nur monatlich, deshalb ganz hinten.
+        source: 'fred',
+        symbol: 'IRLTLT01DEM156N',
+        variant: 'Langfristzins Deutschland, monatlich (OECD via FRED)',
+        note: 'Nur Monatswerte - Tagesveraenderungen sind damit nicht darstellbar.',
+      },
+    ],
+    aiHint:
+      'Die 10-jaehrige Bundesanleihe ist der Referenzzins des Euroraums und gilt als sicherster Hafen ' +
+      'in Euro. Der Abstand zur US-Rendite (Zinsdifferenz) ist einer der wichtigsten Treiber fuer EUR/USD.',
+  },
+  {
     id: 'dollar_index',
     label: 'US-Dollar-Index',
     group: 'Zinsen & Waehrungen',
@@ -110,6 +145,7 @@ export const METRICS = [
     format: { style: 'decimal', digits: 4 },
     providers: [
       { source: 'frankfurter', symbol: 'USD', variant: 'EZB-Referenzkurs' },
+      { source: 'twelvedata', symbol: 'EUR/USD', variant: 'Spot' },
       { source: 'stooq', symbol: 'eurusd', variant: 'Spot' },
     ],
     aiHint:
@@ -123,6 +159,7 @@ export const METRICS = [
     blurb: 'Deutscher Leitindex (Performanceindex)',
     format: { style: 'decimal', digits: 2 },
     providers: [
+      { source: 'twelvedata', symbol: 'DAX', exchange: 'XETR', variant: 'DAX Performanceindex' },
       { source: 'stooq', symbol: '^dax', variant: 'DAX Performanceindex' },
       { source: 'yahoo', symbol: '^GDAXI', variant: 'DAX Performanceindex' },
     ],
@@ -138,6 +175,7 @@ export const METRICS = [
     format: { style: 'currency', currency: 'USD', digits: 0 },
     providers: [
       { source: 'coingecko', symbol: 'bitcoin', variant: 'CoinGecko Marktpreis' },
+      { source: 'twelvedata', symbol: 'BTC/USD', variant: 'Spot' },
       { source: 'stooq', symbol: 'btcusd', variant: 'Spot' },
     ],
     aiHint:
@@ -152,6 +190,7 @@ export const METRICS = [
     optional: true,
     format: { style: 'decimal', digits: 2 },
     providers: [
+      { source: 'twelvedata', symbol: 'VIX', variant: 'CBOE VIX' },
       { source: 'stooq', symbol: '^vix', variant: 'CBOE VIX' },
       { source: 'yahoo', symbol: '^VIX', variant: 'CBOE VIX' },
     ],

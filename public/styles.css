@@ -20,8 +20,8 @@
   --focus: #3987e5;
 
   --radius: 12px;
-  --gap: 1rem;
-  --maxw: 1120px;
+  --gap: 0.75rem;
+  --maxw: 1400px;
 }
 
 @media (prefers-color-scheme: light) {
@@ -121,18 +121,26 @@ h1 {
   color: var(--text-secondary);
   font-size: 0.875rem;
 }
-.theme-toggle {
+.header-actions {
+  display: flex;
+  gap: 0.5rem;
   flex: none;
+}
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 40px;
   height: 40px;
   border-radius: 50%;
   border: 1px solid var(--border);
   background: var(--surface-raised);
   color: var(--text-secondary);
-  font-size: 1.1rem;
+  font-size: 1.05rem;
+  text-decoration: none;
   cursor: pointer;
 }
-.theme-toggle:hover {
+.icon-button:hover {
   color: var(--text-primary);
 }
 
@@ -191,7 +199,7 @@ h1 {
 .cards {
   display: grid;
   gap: var(--gap);
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
 }
 
 /* --- Kennzahl-Karte ------------------------------------------------------ */
@@ -199,10 +207,10 @@ h1 {
   background: var(--surface-raised);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 1.1rem 1.25rem 1rem;
+  padding: 0.85rem 1rem 0.75rem;
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0.55rem;
 }
 .card.is-unavailable {
   opacity: 0.75;
@@ -220,7 +228,7 @@ h1 {
 /* Platz fuer zwei Zeilen reservieren, damit die Werte einer Reihe
    auf gleicher Hoehe stehen. */
 .card-head {
-  min-height: 3.9rem;
+  min-height: 3.6rem;
 }
 .card-value {
   font-size: 1.85rem;
@@ -355,6 +363,125 @@ details.table-view th:last-child {
 }
 .page-footer p {
   margin: 0 0 0.4rem;
+}
+
+/* ---------------------------------------------------------------------------
+   Kiosk-Modus (?kiosk) - fuer einen fest montierten Monitor.
+   Alles auf eine Bildschirmseite, kein Scrollen, keine Bedienelemente.
+   Die Groessen haengen an der Fensterhoehe, damit dieselbe Seite auf einem
+   24-Zoll-Monitor genauso passt wie auf einem kleinen Panel.
+--------------------------------------------------------------------------- */
+:root[data-view='kiosk'],
+:root[data-view='kiosk'] body {
+  height: 100%;
+  overflow: hidden;
+}
+:root[data-view='kiosk'] body {
+  display: flex;
+  flex-direction: column;
+}
+/* Wichtig: .wrap hat sonst "margin: 0 auto". Als Flex-Kind von body
+   verhindern Auto-Margins das Strecken - das Element schrumpft dann auf
+   Inhaltsbreite und sitzt als schmale Saeule in der Mitte. */
+:root[data-view='kiosk'] .wrap {
+  max-width: none;
+  width: 100%;
+  margin: 0;
+  padding: 0 1.2vw;
+}
+:root[data-view='kiosk'] .page-header {
+  padding: 1.2vh 0 1vh;
+  margin-bottom: 1vh;
+}
+:root[data-view='kiosk'] h1 {
+  font-size: clamp(1rem, 2.4vh, 1.6rem);
+}
+:root[data-view='kiosk'] .header-meta {
+  font-size: clamp(0.7rem, 1.6vh, 1rem);
+}
+:root[data-view='kiosk'] .header-actions,
+:root[data-view='kiosk'] .page-footer,
+:root[data-view='kiosk'] .skip-link {
+  display: none;
+}
+
+:root[data-view='kiosk'] main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 1.6vh;
+}
+/* Die Gruppen teilen sich die verbleibende Hoehe zu gleichen Teilen. */
+:root[data-view='kiosk'] #groups {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-auto-rows: minmax(0, 1fr);
+  gap: 1vh;
+}
+:root[data-view='kiosk'] .group {
+  margin: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+:root[data-view='kiosk'] .group-title {
+  margin: 0 0 0.5vh;
+  font-size: clamp(0.6rem, 1.3vh, 0.8rem);
+}
+:root[data-view='kiosk'] .cards {
+  flex: 1;
+  min-height: 0;
+  gap: 1vh;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+:root[data-view='kiosk'] .card {
+  padding: 1vh 1.1vh;
+  gap: 0.6vh;
+  border-radius: 10px;
+  overflow: hidden;
+}
+/* Wird der Platz knapp, soll die Kurve schrumpfen - nicht der Text.
+   Ohne das stauchen sich Titel und Wert ineinander. */
+:root[data-view='kiosk'] .card > * {
+  flex: none;
+}
+:root[data-view='kiosk'] .spark {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+:root[data-view='kiosk'] .card-head {
+  min-height: 0;
+}
+:root[data-view='kiosk'] .card-head h3 {
+  font-size: clamp(0.75rem, 1.8vh, 1.1rem);
+}
+:root[data-view='kiosk'] .card-blurb {
+  display: none;
+}
+:root[data-view='kiosk'] .card-value {
+  font-size: clamp(1.2rem, 4vh, 3rem);
+}
+:root[data-view='kiosk'] .card-value.is-empty {
+  font-size: clamp(0.75rem, 1.7vh, 1rem);
+}
+:root[data-view='kiosk'] .change {
+  font-size: clamp(0.65rem, 1.5vh, 0.95rem);
+  padding: 0.15em 0.55em;
+}
+:root[data-view='kiosk'] .spark {
+  height: clamp(24px, 8vh, 110px);
+  margin-top: auto;
+}
+:root[data-view='kiosk'] .spark-caption,
+:root[data-view='kiosk'] .card-note {
+  display: none;
+}
+:root[data-view='kiosk'] .status {
+  padding: 0.8vh 1rem;
+  margin-bottom: 1vh;
+  font-size: clamp(0.7rem, 1.6vh, 0.95rem);
 }
 
 @media (max-width: 480px) {

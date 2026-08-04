@@ -3,6 +3,9 @@ import * as yahoo from './yahoo.js';
 import * as fred from './fred.js';
 import * as frankfurter from './frankfurter.js';
 import * as coingecko from './coingecko.js';
+import * as twelvedata from './twelvedata.js';
+import * as bundesbank from './bundesbank.js';
+import * as ecb from './ecb.js';
 import { log } from '../lib/log.js';
 
 /**
@@ -16,8 +19,28 @@ import { log } from '../lib/log.js';
  * anlegt und es hier eintraegt - der Rest des Systems bleibt unberuehrt.
  */
 export const PROVIDERS = Object.fromEntries(
-  [stooq, yahoo, fred, frankfurter, coingecko].map((p) => [p.id, p]),
+  [stooq, yahoo, fred, frankfurter, coingecko, twelvedata, bundesbank, ecb].map((p) => [p.id, p]),
 );
+
+/**
+ * Manche Anbieter deckeln die Anfragen pro Minute (Twelve Data: 8 im
+ * kostenlosen Tarif). Ein Provider kann dafuer `minIntervalMs` exportieren;
+ * hier wird der Abstand zwischen zwei Aufrufen desselben Providers gewahrt.
+ */
+const lastCallAt = new Map();
+
+async function respectRateLimit(provider) {
+  const minInterval = provider.minIntervalMs ?? 0;
+  if (minInterval <= 0) return;
+
+  const previous = lastCallAt.get(provider.id) ?? 0;
+  const waitMs = previous + minInterval - Date.now();
+  if (waitMs > 0) {
+    log.info(`  warte ${Math.ceil(waitMs / 1000)}s (Ratenlimit ${provider.label})`);
+    await new Promise((resolve) => setTimeout(resolve, waitMs));
+  }
+  lastCallAt.set(provider.id, Date.now());
+}
 
 /**
  * Holt eine Kennzahl ueber ihre Provider-Kette: die erste Quelle, die
@@ -43,6 +66,7 @@ export async function collectMetric(metric, range) {
     }
 
     try {
+      await respectRateLimit(provider);
       const raw = await provider.fetchSeries(spec, range);
       const scale = Number.isFinite(spec.scale) ? spec.scale : 1;
       const series = raw

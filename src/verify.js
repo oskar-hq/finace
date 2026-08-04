@@ -24,6 +24,13 @@ const DIM = '\x1b[2m';
 const RESET = '\x1b[0m';
 
 console.log(`Quellen-Check, Zeitraum ${range.from} .. ${range.to}`);
+console.log(
+  `TWELVEDATA_API_KEY: ${
+    config.twelveDataApiKey
+      ? 'gesetzt'
+      : 'NICHT gesetzt - auf Servern fehlen damit Gold, DAX und VIX'
+  }`,
+);
 console.log(`FRED_API_KEY: ${config.fredApiKey ? 'gesetzt' : 'NICHT gesetzt (FRED wird uebersprungen)'}`);
 console.log(`ANTHROPIC_API_KEY: ${config.anthropicApiKey ? 'gesetzt' : 'NICHT gesetzt (keine Erklaerungen)'}`);
 console.log('');
@@ -42,7 +49,11 @@ for (const metric of METRICS) {
 
   for (const spec of metric.providers) {
     const provider = PROVIDERS[spec.source];
-    const name = `  ${spec.source}:${spec.symbol}`.padEnd(34);
+    // Reihenschluessel von Bundesbank/EZB sind sehr lang - fuer die Uebersicht
+    // kuerzen, damit die Spalten nicht auseinanderlaufen.
+    const full = `${spec.source}:${spec.symbol}`;
+    const short = full.length > 40 ? `${full.slice(0, 37)}...` : full;
+    const name = `  ${short}`.padEnd(44);
 
     if (!provider) {
       console.log(`${name}${RED}unbekannter Provider${RESET}`);

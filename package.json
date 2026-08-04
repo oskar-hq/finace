@@ -10,6 +10,7 @@
   "scripts": {
     "update": "node --disable-warning=ExperimentalWarning src/update.js",
     "update:no-ai": "node --disable-warning=ExperimentalWarning src/update.js --no-ai",
+    "update:quick": "node --disable-warning=ExperimentalWarning src/update.js --quick",
     "verify": "node --disable-warning=ExperimentalWarning src/verify.js",
     "demo": "node --disable-warning=ExperimentalWarning src/demo.js",
     "serve": "node --disable-warning=ExperimentalWarning src/serve.js"

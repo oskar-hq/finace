@@ -40,6 +40,7 @@ const abs = (p) => (path.isAbsolute(p) ? p : path.join(ROOT, p));
 export const config = {
   anthropicApiKey: process.env.ANTHROPIC_API_KEY || '',
   fredApiKey: process.env.FRED_API_KEY || '',
+  twelveDataApiKey: process.env.TWELVEDATA_API_KEY || '',
   aiModel: process.env.AI_MODEL || 'claude-haiku-4-5',
   aiMaxTokens: num(process.env.AI_MAX_TOKENS, 8000),
   skipAi: process.env.SKIP_AI === '1',
@@ -48,6 +49,9 @@ export const config = {
   publicDir: abs(process.env.PUBLIC_DIR || './public'),
   historyDays: num(process.env.HISTORY_DAYS, 90),
   fetchDays: num(process.env.FETCH_DAYS, 180),
+  // Kurzer Zeitraum fuer haeufige Laeufe (npm run update:quick), damit ein
+  // 15-Minuten-Takt die Tageskontingente der Anbieter nicht aufbraucht.
+  quickFetchDays: num(process.env.QUICK_FETCH_DAYS, 10),
   port: num(process.env.PORT, 8080),
   host: process.env.HOST || '127.0.0.1',
 };

@@ -5,6 +5,19 @@
 
 const DATA_URL = './data/latest.json';
 
+/**
+ * Kiosk-Modus: ?kiosk an die URL haengen. Gedacht fuer einen fest
+ * montierten Monitor - alles auf einer Bildschirmseite, kein Scrollen,
+ * keine Bedienelemente, und die Seite holt sich neue Daten selbst.
+ */
+const params = new URLSearchParams(location.search);
+const KIOSK = params.has('kiosk') && params.get('kiosk') !== '0';
+
+/** Wie oft die JSON-Datei erneut geladen wird (der Generator laeuft per Cron). */
+const REFRESH_MS = Math.max(15, Number(params.get('refresh')) || (KIOSK ? 60 : 120)) * 1000;
+
+if (KIOSK) document.documentElement.dataset.view = 'kiosk';
+
 /* --- Formatierung --------------------------------------------------------- */
 
 const dateFmt = new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
@@ -268,7 +281,12 @@ function buildCard(metric, windows) {
 
   // Bei "nicht verfuegbar" steht der Hinweis schon als Wert - nicht doppeln.
   if (metric.note && !unavailable) card.append(el('p', { class: 'card-note', text: metric.note }));
-  if (metric.explanation) card.append(el('p', { class: 'explanation', text: metric.explanation }));
+  if (metric.explanation && !KIOSK) {
+    card.append(el('p', { class: 'explanation', text: metric.explanation }));
+  }
+
+  // Auf dem Wandmonitor zaehlt nur die Zahl - Quellenangaben und Tabelle weg.
+  if (KIOSK) return card;
 
   const footParts = [];
   if (metric.as_of) footParts.push(`Stand ${formatDate(metric.as_of)}`);
@@ -277,7 +295,7 @@ function buildCard(metric, windows) {
 
   const foot = el('div', { class: 'card-foot' });
   if (footParts.length > 0) foot.append(el('div', { text: footParts.join(' · ') }));
-  const table = unavailable ? null : buildTableView(metric);
+  const table = buildTableView(metric);
   if (table) foot.append(table);
   if (foot.childNodes.length > 0) card.append(foot);
 
@@ -295,6 +313,9 @@ function showStatus(message, tone = 'warn') {
 }
 
 function render(data) {
+  // Beim automatischen Neuladen alte Hinweise erst raeumen.
+  document.getElementById('status').hidden = true;
+
   const windows = data.windows ?? [
     { key: 'd1', label: '1 Tag' },
     { key: 'd5', label: '5 Tage' },
@@ -318,7 +339,7 @@ function render(data) {
   }
   if (data.ai?.status === 'error') {
     problems.push(`Die Erklaerungen fehlen heute (${data.ai.error ?? 'unbekannter Fehler'}).`);
-  } else if (data.ai?.status === 'skipped' && !data.demo) {
+  } else if (data.ai?.status === 'skipped' && !data.demo && !KIOSK) {
     // Kein Fehler, sondern eine gueltige Betriebsart: Dashboard ohne KI.
     hints.push('Dieses Dashboard laeuft ohne Erklaerungen (kein ANTHROPIC_API_KEY oder SKIP_AI=1).');
   }
@@ -330,9 +351,12 @@ function render(data) {
   if (problems.length > 0) showStatus([...problems, ...hints].join(' '), 'warn');
   else if (hints.length > 0) showStatus(hints.join(' '), 'info');
 
-  if (data.ai?.summary) {
+  const summary = document.getElementById('summary');
+  if (data.ai?.summary && !KIOSK) {
     document.getElementById('summary-text').textContent = data.ai.summary;
-    document.getElementById('summary').hidden = false;
+    summary.hidden = false;
+  } else {
+    summary.hidden = true;
   }
 
   // Karten nach Gruppen aus der Konfiguration.
@@ -352,18 +376,30 @@ function render(data) {
   }
 
   // Ohne Erklaerungstext gibt es nichts zu zeigen - dann bleibt der Block weg.
-  if (data.glossary?.term && data.glossary.text) {
+  const glossary = document.getElementById('glossary');
+  if (data.glossary?.term && data.glossary.text && !KIOSK) {
     document.getElementById('glossary-title').textContent = data.glossary.term;
     document.getElementById('glossary-text').textContent = data.glossary.text;
-    document.getElementById('glossary').hidden = false;
+    glossary.hidden = false;
+  } else {
+    glossary.hidden = true;
   }
 
   const disclaimer = document.getElementById('disclaimer');
+  disclaimer.hidden = !data.ai?.disclaimer;
   if (data.ai?.disclaimer) disclaimer.textContent = data.ai.disclaimer;
-  else disclaimer.hidden = true;
 }
 
 /* --- Design-Umschalter ----------------------------------------------------- */
+
+/** Der Knopf im Kopf schaltet zwischen normaler Ansicht und Kiosk hin und her. */
+function initKioskLink() {
+  const link = document.getElementById('kiosk-toggle');
+  if (!link) return;
+  link.href = KIOSK ? location.pathname : `${location.pathname}?kiosk`;
+  link.title = KIOSK ? 'Zurueck zur normalen Ansicht' : 'Monitor-Ansicht (ohne Scrollen)';
+  link.setAttribute('aria-label', link.title);
+}
 
 function initThemeToggle() {
   const stored = localStorage.getItem('theme');
@@ -382,17 +418,39 @@ function initThemeToggle() {
 /* --- Start ---------------------------------------------------------------- */
 
 initThemeToggle();
+initKioskLink();
 
-fetch(DATA_URL, { cache: 'no-cache' })
-  .then((res) => {
+let lastGeneratedAt = null;
+let everLoaded = false;
+
+/**
+ * Holt die JSON-Datei und zeichnet neu, wenn sie sich geaendert hat.
+ * Laeuft danach im Intervall weiter, damit ein Wandmonitor ohne Zutun
+ * aktuell bleibt - der Generator schreibt ja per Cron nach.
+ */
+async function load() {
+  try {
+    const res = await fetch(DATA_URL, { cache: 'no-cache' });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return res.json();
-  })
-  .then(render)
-  .catch((err) => {
-    document.getElementById('header-meta').textContent = 'Keine Daten geladen';
-    showStatus(
-      `Die Datei data/latest.json konnte nicht geladen werden (${err.message}). ` +
-        'Zuerst "npm run update" ausfuehren – oder "npm run demo" fuer Beispieldaten.',
-    );
-  });
+    const data = await res.json();
+
+    everLoaded = true;
+    if (data.generated_at !== lastGeneratedAt) {
+      lastGeneratedAt = data.generated_at;
+      render(data);
+    }
+  } catch (err) {
+    // Beim ersten Laden ist das ein Setup-Hinweis, spaeter nur eine Stoerung -
+    // dann bleibt die zuletzt gezeichnete Ansicht stehen.
+    if (!everLoaded) {
+      document.getElementById('header-meta').textContent = 'Keine Daten geladen';
+      showStatus(
+        `Die Datei data/latest.json konnte nicht geladen werden (${err.message}). ` +
+          'Zuerst "npm run update" ausfuehren – oder "npm run demo" fuer Beispieldaten.',
+      );
+    }
+  }
+}
+
+load();
+setInterval(load, REFRESH_MS);

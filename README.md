@@ -1,8 +1,13 @@
 # Finanz-Dashboard
 
-Ein persoenliches Markt-Dashboard, das einmal taeglich per Cron aktualisiert wird
-und zu jeder Kennzahl eine kurze, verstaendliche Erklaerung auf Deutsch mitliefert.
-Gedacht als taegliches Lernwerkzeug, nicht als Trading-Terminal.
+Ein persoenliches Markt-Dashboard: Basis-Finanzdaten aus robusten, kostenlosen
+Quellen, per Cron aktualisiert – einmal taeglich oder im 15-Minuten-Takt. Es gibt
+eine **Monitor-Ansicht ohne Scrollen** (`?kiosk`) fuer einen fest montierten
+Bildschirm.
+
+Optional kann pro Tag ein Anthropic-Call zu jeder Kennzahl eine kurze Erklaerung
+auf Deutsch schreiben. Das ist ein Zusatz, kein Kern: ohne API-Key laeuft alles
+unveraendert durch.
 
 Zwei getrennte Teile:
 
@@ -69,9 +74,12 @@ src/
     http.js             fetch mit Timeout und Retry
     dates.js            Datums-Helfer (alles YYYY-MM-DD, UTC)
     analyze.js          Veraenderungen, abgeleitete Reihen, Snapshots
-    output.js           atomares Schreiben der JSON-Datei
+    output.js           JSON atomar schreiben, vorherige Ausgabe lesen
+    sdmx.js             CSV-Parser fuer Bundesbank und EZB
   providers/            eine Datei pro Datenquelle, einzeln austauschbar
-    index.js  stooq.js  yahoo.js  fred.js  frankfurter.js  coingecko.js
+    index.js            Registry, Fallback-Kette, Ratenlimit
+    twelvedata.js  stooq.js  yahoo.js  fred.js
+    bundesbank.js  ecb.js  frankfurter.js  coingecko.js
   ai/
     prompt.js           System-Prompt, User-Prompt, JSON-Schema
     explain.js          der eine Anthropic-Call pro Tag
@@ -88,15 +96,55 @@ data/finance.db         <- erzeugt, nicht eingecheckt
 
 | Kennzahl | Quellenkette (erste erreichbare gewinnt) |
 |---|---|
-| Gold USD | stooq `xauusd` → Yahoo `GC=F` |
+| Gold USD | **Twelve Data `XAU/USD`** → stooq `xauusd` → Yahoo `GC=F` |
 | Gold EUR | berechnet aus Gold USD / EURUSD |
 | Brent-Oel | FRED `DCOILBRENTEU` → Yahoo `BZ=F` → stooq `cb.f` |
 | US-Rendite 10J | FRED `DGS10` → Yahoo `^TNX` |
+| **Bundesanleihe 10J** | **Bundesbank** → EZB-Zinskurve (Euroraum AAA) → FRED (monatlich) |
 | US-Dollar-Index | FRED `DTWEXBGS` (handelsgewichtet) → Yahoo `DX-Y.NYB` (DXY) |
-| EUR/USD | frankfurter (EZB) → stooq `eurusd` |
-| DAX | stooq `^dax` → Yahoo `^GDAXI` |
-| Bitcoin | CoinGecko → stooq `btcusd` |
-| VIX | stooq `^vix` → Yahoo `^VIX` |
+| EUR/USD | frankfurter (EZB) → Twelve Data `EUR/USD` → stooq `eurusd` |
+| DAX | **Twelve Data `DAX`** → stooq `^dax` → Yahoo `^GDAXI` |
+| Bitcoin | CoinGecko → Twelve Data `BTC/USD` → stooq `btcusd` |
+| VIX | **Twelve Data `VIX`** → stooq `^vix` → Yahoo `^VIX` |
+
+### Warum Twelve Data vorne steht
+
+Auf einem Server gilt: **stooq blockt Rechenzentrums-IP-Bereiche pauschal** (es
+kommt HTML statt CSV zurueck), und **Yahoos inoffizielle Chart-API antwortet von
+Server-IPs praktisch immer mit HTTP 429**. Betroffen waren damit Gold, DAX und
+VIX komplett, weil deren Kette nur aus genau diesen beiden Quellen bestand.
+
+Twelve Data (kostenloser Tarif, Key noetig) steht deshalb bei diesen drei
+Kennzahlen an erster Stelle. stooq und Yahoo bleiben als Glieder dahinter – vom
+Heimanschluss aus funktionieren sie weiterhin und kosten dort kein Kontingent.
+
+Zwei Einschraenkungen, die du kennen solltest:
+
+* Der Free-Tier erlaubt **800 Abrufe pro Tag und 8 pro Minute**. Das Ratenlimit
+  haelt der Generator selbst ein (`minIntervalMs` im Provider); ein Lauf mit
+  mehreren Twelve-Data-Kennzahlen dauert dadurch ein paar Sekunden laenger.
+* **Forex und Krypto** (`XAU/USD`, `EUR/USD`, `BTC/USD`) sind im kostenlosen
+  Tarif enthalten. Bei **Indizes** (`DAX`, `VIX`) haengt es vom Tarif ab – falls
+  Twelve Data dort mit „not available on your plan" antwortet, sagt dir
+  `npm run verify` das im Klartext, und die Kette faellt automatisch auf stooq
+  bzw. Yahoo zurueck.
+
+FRED scheidet fuer Gold uebrigens aus: die Reihe `GOLDAMGBD228NLBM` wurde
+eingestellt und liefert keine neuen Werte mehr.
+
+### Deutsche Staatsanleihen
+
+Die 10-jaehrige Bundesanleihe kommt primaer von der **Bundesbank** ueber deren
+offene REST-Schnittstelle – offizielle Quelle, kein Key, taegliche Werte
+(Reihe `BBSIS/D.I.ZST.ZI.EUR.S1311.B.A604.R10XX.R.A.A._Z._Z.A`, Rendite
+boersennotierter Bundeswertpapiere mit 10 Jahren Restlaufzeit).
+
+Faellt die aus, greift die **EZB-Zinskurve** für AAA-Emittenten des Euroraums.
+Das ist bewusst als eigene Datenbasis gekennzeichnet: die Kurve laeuft nah an
+der Bundesanleihe, ist aber nicht dasselbe – deshalb werden Veraenderungen
+ueber diesen Quellenwechsel hinweg nicht berechnet (siehe unten). Ganz hinten
+steht eine FRED-Reihe, die nur Monatswerte hat; damit sind Tagesveraenderungen
+naturgemaess nicht darstellbar.
 
 ### Kennzahl hinzufuegen
 
@@ -205,15 +253,60 @@ erscheinen trotzdem, oben steht dann ein Hinweis mit der Fehlerursache.
 crontab -e
 ```
 
+Fuer ein Dashboard, das man einmal am Tag anschaut, reicht ein Lauf:
+
 ```cron
 # Taeglich 06:30 - nach dem US-Settlement, vor dem Kaffee.
 30 6 * * * cd /opt/finance-dashboard && /usr/bin/npm run update >> /var/log/finance-dashboard.log 2>&1
 ```
 
+Fuer einen Monitor, der laufend aktuell sein soll, zwei Eintraege:
+
+```cron
+# Einmal taeglich der volle Lauf: lange Historie, plus KI-Texte falls Key da.
+30 6 * * * cd /opt/finance-dashboard && /usr/bin/npm run update >> /var/log/finance-dashboard.log 2>&1
+
+# Alle 15 Minuten der kurze Lauf: nur die letzten Tage, nie ein KI-Call.
+*/15 * * * * cd /opt/finance-dashboard && /usr/bin/npm run update:quick >> /var/log/finance-dashboard.log 2>&1
+```
+
+`update:quick` holt nur `QUICK_FETCH_DAYS` (Standard 10) statt 180 Tage und
+ueberspringt die KI grundsaetzlich. Die lange Historie bleibt erhalten, weil sie
+in der Datenbank steht – der kurze Lauf frischt nur die juengsten Tage auf.
+
+**Die Erklaerungstexte ueberleben das.** Findet ein kurzer Lauf eine
+`latest.json` vom selben Kalendertag mit Texten, uebernimmt er sie
+(`ai.status: "reused"`). Ohne das wuerde der 15-Minuten-Takt die Texte vom
+Morgen bei jedem Durchlauf loeschen. Bewusst nur fuer denselben Tag: eine
+Einschaetzung von gestern wuerde zu den heutigen Zahlen nicht mehr passen.
+
+**Kontingent im Blick behalten:** 96 kurze Laeufe pro Tag mal der Anzahl
+Twelve-Data-Kennzahlen muss unter 800 Abrufen bleiben. Mit den vier
+konfigurierten Kennzahlen sind das rund 384 – passt. Wer mehr Kennzahlen ueber
+Twelve Data holt, sollte den Takt strecken (`*/30`).
+
 Cron kennt die `.env` nicht – deshalb liest der Generator sie selbst ein
 (`src/lib/env.js`). Wichtig ist nur, dass `cd` ins Projektverzeichnis fuehrt.
 Bereits gesetzte Umgebungsvariablen haben Vorrang vor der Datei, einzelne Werte
 lassen sich also im Cron-Eintrag ueberschreiben.
+
+### Monitor-Ansicht (Kiosk)
+
+`https://finanzen.example.com/?kiosk` zeigt alles auf **einer Bildschirmseite,
+ohne Scrollen** – gedacht fuer einen fest montierten Monitor. Weg fallen
+Bedienelemente, Fusszeile, Quellenangaben, Tabellen und Erklaerungstexte; die
+Schriftgroessen haengen an der Fensterhoehe, damit dieselbe Seite auf einem
+24-Zoll-Monitor genauso passt wie auf einem kleinen Panel (geprueft mit
+1920×1080 und 1366×768).
+
+Die Seite **laedt sich selbst nach** – im Kiosk alle 60 Sekunden, sonst alle 120.
+Sie holt dabei nur die JSON-Datei und zeichnet neu, wenn sich `generated_at`
+geaendert hat; ein Browser-Reload ist nie noetig. Anpassen mit `?kiosk&refresh=30`
+(Sekunden, Minimum 15). Faellt der Server kurz aus, bleibt die zuletzt
+gezeichnete Ansicht stehen, statt leer zu werden.
+
+Im Browser des Monitors einfach Vollbild (F11) und die URL als Startseite
+setzen. Der Knopf ⛶ oben rechts schaltet zwischen beiden Ansichten um.
 
 ### Frontend ausliefern
 
@@ -289,11 +382,20 @@ Ehrlich dazugesagt, damit klar ist, was hier bereits lief und was nicht:
   Lauf ohne `ANTHROPIC_API_KEY` gegen eine lokal simulierte Datenquelle –
   Exit-Code 0, vollstaendige `latest.json`, und im Frontend weder leere
   Textkaesten noch ein Glossarblock ohne Inhalt.
-* **Nicht getestet:** die tatsaechlichen HTTP-Abrufe bei stooq, Yahoo, FRED,
-  frankfurter und CoinGecko sowie der Anthropic-Call – die Entwicklungsumgebung
-  hatte weder Zugriff auf diese Hosts noch einen API-Key. Die Symbole stammen
-  aus der Dokumentation der jeweiligen Anbieter und sind nicht gegen die Live-API
-  geprueft.
+  Der 15-Minuten-Takt ist gegen eine lokal simulierte Datenquelle geprueft:
+  `update:quick` holt den kurzen Zeitraum, ueberspringt die KI und uebernimmt
+  die Texte des Tages (`ai.status: "reused"`). Die Kiosk-Ansicht wurde bei
+  1920×1080 und 1366×768 gemessen – in beiden Faellen exakt eine
+  Bildschirmseite, kein Scrollen –, und das automatische Nachladen wurde
+  geprueft, indem die JSON-Datei bei offener Seite geaendert wurde.
+* **Nicht getestet:** die tatsaechlichen HTTP-Abrufe bei Twelve Data,
+  Bundesbank, EZB, stooq, Yahoo, FRED, frankfurter und CoinGecko sowie der
+  Anthropic-Call – die Entwicklungsumgebung hatte weder Zugriff auf diese Hosts
+  noch API-Keys. Symbole und Reihenschluessel stammen aus der Dokumentation der
+  jeweiligen Anbieter und sind nicht gegen die Live-API geprueft. Besonders im
+  Blick behalten: ob Twelve Data `DAX` und `VIX` im kostenlosen Tarif liefert,
+  und ob der Bundesbank-CSV-Parser das reale Format trifft (er ist bewusst
+  tolerant gebaut und akzeptiert Komma wie Semikolon).
 
 Genau dafuer gibt es `npm run verify`: der Befehl probiert jede einzelne Quelle
 aus und zeigt pro Zeile, ob sie antwortet, wie aktuell sie ist und welchen Wert
