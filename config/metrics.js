@@ -21,6 +21,15 @@
  *                        (sonst vergleicht man Aepfel mit Birnen).
  * derived     statt providers: aus anderen Kennzahlen berechnet
  *             { op: 'divide'|'multiply', a: <id>, b: <id> }
+ * sanity      { min, max } - erwarteter Wertebereich. Liefert eine Quelle
+ *             etwas ausserhalb, gilt sie als kaputt und die naechste Quelle
+ *             uebernimmt. Schuetzt gegen das Hauptrisiko dieser Architektur:
+ *             ein Symbol existiert, meint aber etwas anderes (z.B. liefert
+ *             Twelve Data unter "DAX" den Global X DAX Germany ETF in Dollar,
+ *             also ~46 statt ~26.000). Solche Werte sehen fuer sich genommen
+ *             plausibel aus - nur eben nicht fuer diese Kennzahl.
+ *             Bewusst grosszuegig setzen: der Bereich soll ueber Jahre halten
+ *             und nur grobe Verwechslungen abfangen.
  * aiHint      Zusatzkontext, der im Prompt an Claude mitgeschickt wird
  */
 
@@ -31,6 +40,7 @@ export const METRICS = [
     group: 'Rohstoffe & Realwerte',
     blurb: 'Feinunze in US-Dollar',
     format: { style: 'currency', currency: 'USD', digits: 2 },
+    sanity: { min: 200, max: 50000 },
     providers: [
       // XAU/USD ist Forex-Klasse und damit auch im kostenlosen Twelve-Data-Tarif.
       { source: 'twelvedata', symbol: 'XAU/USD', variant: 'XAU/USD Spot' },
@@ -47,6 +57,7 @@ export const METRICS = [
     group: 'Rohstoffe & Realwerte',
     blurb: 'Feinunze in Euro (berechnet aus Gold USD / EURUSD)',
     format: { style: 'currency', currency: 'EUR', digits: 2 },
+    sanity: { min: 200, max: 50000 },
     derived: { op: 'divide', a: 'gold_usd', b: 'eurusd' },
     aiHint:
       'Der Euro-Goldpreis enthaelt zwei Effekte: die Bewegung des Goldpreises selbst und die Bewegung des Wechselkurses. ' +
@@ -58,10 +69,13 @@ export const METRICS = [
     group: 'Rohstoffe & Realwerte',
     blurb: 'Barrel in US-Dollar',
     format: { style: 'currency', currency: 'USD', digits: 2 },
+    sanity: { min: 5, max: 500 },
     providers: [
       { source: 'fred', symbol: 'DCOILBRENTEU', variant: 'Brent Spot (EIA via FRED)' },
       { source: 'yahoo', symbol: 'BZ=F', variant: 'ICE Brent Future' },
       { source: 'stooq', symbol: 'cb.f', variant: 'ICE Brent Future' },
+      // Reserve: nur 25 Abrufe pro Tag, deshalb ganz hinten.
+      { source: 'alphavantage', symbol: 'BRENT', variant: 'Brent Spot (EIA via Alpha Vantage)' },
     ],
     aiHint:
       'Oel ist ein Vorlaufindikator fuer Inflation: teure Energie verteuert Transport und Produktion. ' +
@@ -73,9 +87,11 @@ export const METRICS = [
     group: 'Zinsen & Waehrungen',
     blurb: 'Rendite in Prozent p. a.',
     format: { style: 'decimal', digits: 2, suffix: ' %' },
+    sanity: { min: -2, max: 30 },
     providers: [
       { source: 'fred', symbol: 'DGS10', variant: 'Treasury Constant Maturity 10Y' },
       { source: 'yahoo', symbol: '^TNX', variant: 'CBOE 10Y Yield Index' },
+      { source: 'alphavantage', symbol: 'TREASURY_YIELD:10year', variant: 'Treasury Constant Maturity 10Y' },
     ],
     aiHint:
       'Die 10-jaehrige US-Rendite ist der wichtigste Referenzzins der Welt. Sie enthaelt Erwartungen ueber ' +
@@ -87,6 +103,7 @@ export const METRICS = [
     group: 'Zinsen & Waehrungen',
     blurb: 'Rendite in Prozent p. a.',
     format: { style: 'decimal', digits: 2, suffix: ' %' },
+    sanity: { min: -3, max: 30 },
     providers: [
       {
         // Rendite boersennotierter Bundeswertpapiere, 10 Jahre Restlaufzeit, taeglich.
@@ -119,6 +136,7 @@ export const METRICS = [
     group: 'Zinsen & Waehrungen',
     blurb: 'Bevorzugt handelsgewichteter Fed-Index (breit), sonst DXY',
     format: { style: 'decimal', digits: 2 },
+    sanity: { min: 40, max: 250 },
     providers: [
       {
         source: 'fred',
@@ -143,10 +161,12 @@ export const METRICS = [
     group: 'Zinsen & Waehrungen',
     blurb: 'US-Dollar je Euro (EZB-Referenz)',
     format: { style: 'decimal', digits: 4 },
+    sanity: { min: 0.4, max: 3 },
     providers: [
       { source: 'frankfurter', symbol: 'USD', variant: 'EZB-Referenzkurs' },
       { source: 'twelvedata', symbol: 'EUR/USD', variant: 'Spot' },
       { source: 'stooq', symbol: 'eurusd', variant: 'Spot' },
+      { source: 'alphavantage', symbol: 'FX_DAILY:EUR/USD', variant: 'Spot' },
     ],
     aiHint:
       'Der Wechselkurs folgt vor allem der Zinsdifferenz zwischen USA und Euroraum. ' +
@@ -158,15 +178,17 @@ export const METRICS = [
     group: 'Aktien & Risiko',
     blurb: 'Deutscher Leitindex (Performanceindex)',
     format: { style: 'decimal', digits: 2 },
+    sanity: { min: 3000, max: 200000 },
     providers: [
-      // Ohne exchange-Angabe: mit "exchange=XETR" antwortet Twelve Data mit 404.
-      // Findet es das Symbol nicht, schlaegt "npm run verify" Alternativen vor.
-      { source: 'twelvedata', symbol: 'DAX', variant: 'DAX Performanceindex' },
-      { source: 'yahoo', symbol: '^GDAXI', variant: 'DAX Performanceindex' },
-      { source: 'stooq', symbol: '^dax', variant: 'DAX Performanceindex' },
-      // Bewusst KEIN Ersatz ueber einen Deutschland-ETF (z.B. EWG): das waere
-      // ein anderer Index in anderer Waehrung. Die Karte hiesse "DAX" und
-      // zeigte ~30 statt ~18.500. Lieber ehrlich "nicht verfuegbar".
+      // Der echte Xetra-Index (ISIN DE0008469008), Stand 08/2026 rund 26.000.
+      { source: 'yahoo', symbol: '^GDAXI', variant: 'DAX Performanceindex (Xetra)' },
+      { source: 'stooq', symbol: '^dax', variant: 'DAX Performanceindex (Xetra)' },
+      // Kandidat fuer Twelve Data. ACHTUNG: NICHT auf "DAX" aendern - darunter
+      // liefert Twelve Data den Global X DAX Germany ETF (NASDAQ, in Dollar,
+      // rund 46 statt rund 26.000). Die sanity-Grenzen oben fangen das ab,
+      // aber es kostet unnoetig einen Abruf. Ob "GDAXI" dort existiert, sagt
+      // "npm run verify" - es fragt bei einem 404 die Symbolsuche.
+      { source: 'twelvedata', symbol: 'GDAXI', variant: 'DAX Performanceindex (Xetra)' },
     ],
     aiHint:
       'Der DAX ist ein Performanceindex - Dividenden sind eingerechnet, er steigt dadurch strukturell staerker ' +
@@ -178,6 +200,7 @@ export const METRICS = [
     group: 'Aktien & Risiko',
     blurb: 'BTC in US-Dollar',
     format: { style: 'currency', currency: 'USD', digits: 0 },
+    sanity: { min: 100, max: 10000000 },
     providers: [
       { source: 'coingecko', symbol: 'bitcoin', variant: 'CoinGecko Marktpreis' },
       { source: 'twelvedata', symbol: 'BTC/USD', variant: 'Spot' },
@@ -194,6 +217,7 @@ export const METRICS = [
     blurb: 'Erwartete Schwankung des S&P 500, in Prozentpunkten',
     optional: true,
     format: { style: 'decimal', digits: 2 },
+    sanity: { min: 3, max: 200 },
     providers: [
       // Die CBOE berechnet den VIX selbst und stellt die Historie als CSV
       // bereit: kein Key, keine Bot-Sperre, offizielle Quelle.

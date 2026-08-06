@@ -7,6 +7,7 @@ import * as twelvedata from './twelvedata.js';
 import * as bundesbank from './bundesbank.js';
 import * as ecb from './ecb.js';
 import * as cboe from './cboe.js';
+import * as alphavantage from './alphavantage.js';
 import { log } from '../lib/log.js';
 
 /**
@@ -20,7 +21,7 @@ import { log } from '../lib/log.js';
  * anlegt und es hier eintraegt - der Rest des Systems bleibt unberuehrt.
  */
 export const PROVIDERS = Object.fromEntries(
-  [stooq, yahoo, fred, frankfurter, coingecko, twelvedata, bundesbank, ecb, cboe].map((p) => [
+  [stooq, yahoo, fred, frankfurter, coingecko, twelvedata, bundesbank, ecb, cboe, alphavantage].map((p) => [
     p.id,
     p,
   ]),
@@ -32,6 +33,17 @@ export const PROVIDERS = Object.fromEntries(
  * hier wird der Abstand zwischen zwei Aufrufen desselben Providers gewahrt.
  */
 const lastCallAt = new Map();
+
+/**
+ * Erster Wert ausserhalb des erlaubten Bereichs, sonst null.
+ * Geprueft wird die ganze Reihe, nicht nur der letzte Wert - ein falsches
+ * Symbol liefert durchgaengig falsche Zahlen, und so faellt es sofort auf.
+ */
+export function findImplausible(series, sanity) {
+  if (!sanity) return null;
+  const { min = -Infinity, max = Infinity } = sanity;
+  return series.find((p) => p.value < min || p.value > max) ?? null;
+}
 
 async function respectRateLimit(provider) {
   const minInterval = provider.minIntervalMs ?? 0;
@@ -79,6 +91,20 @@ export async function collectMetric(metric, range) {
         .sort((a, b) => a.date.localeCompare(b.date));
 
       if (series.length === 0) throw new Error('leere Zeitreihe');
+
+      // Plausibilitaetspruefung: Ein Symbol kann existieren und trotzdem etwas
+      // ganz anderes meinen. Twelve Data liefert unter "DAX" z.B. den Global X
+      // DAX Germany ETF in Dollar - rund 46 statt rund 26.000. Solche Werte
+      // fallen ohne Pruefung niemandem auf, weil sie fuer sich genommen
+      // plausibel aussehen.
+      const bad = findImplausible(series, metric.sanity);
+      if (bad) {
+        throw new Error(
+          `Wert ${bad.value.toLocaleString('de-DE')} vom ${bad.date} liegt ausserhalb des ` +
+            `erwarteten Bereichs ${metric.sanity.min}...${metric.sanity.max} - ` +
+            'vermutlich meint dieses Symbol eine andere Groesse',
+        );
+      }
 
       return {
         ok: true,

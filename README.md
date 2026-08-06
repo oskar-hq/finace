@@ -66,6 +66,7 @@ config/metrics.js       <- ZENTRALE Kennzahlen-Konfiguration (hier erweitern)
 src/
   update.js             Cron-Einstiegspunkt: holen -> speichern -> erklaeren -> JSON
   verify.js             Quellen-Check ohne Seiteneffekte
+  prune.js              unplausible Werte aus der Datenbank raeumen
   demo.js               synthetische Daten fuers Frontend-Testen
   serve.js              minimaler statischer Server fuer public/
   lib/
@@ -79,7 +80,7 @@ src/
     redact.js           API-Keys aus URLs entfernen, bevor sie geloggt werden
   providers/            eine Datei pro Datenquelle, einzeln austauschbar
     index.js            Registry, Fallback-Kette, Ratenlimit
-    twelvedata.js  cboe.js  stooq.js  yahoo.js  fred.js
+    twelvedata.js  alphavantage.js  cboe.js  stooq.js  yahoo.js  fred.js
     bundesbank.js  ecb.js  frankfurter.js  coingecko.js
   ai/
     prompt.js           System-Prompt, User-Prompt, JSON-Schema
@@ -99,12 +100,12 @@ data/finance.db         <- erzeugt, nicht eingecheckt
 |---|---|
 | Gold USD | **Twelve Data `XAU/USD`** → stooq `xauusd` → Yahoo `GC=F` |
 | Gold EUR | berechnet aus Gold USD / EURUSD |
-| Brent-Oel | FRED `DCOILBRENTEU` → Yahoo `BZ=F` → stooq `cb.f` |
-| US-Rendite 10J | FRED `DGS10` → Yahoo `^TNX` |
+| Brent-Oel | FRED `DCOILBRENTEU` → Yahoo `BZ=F` → stooq `cb.f` → Alpha Vantage `BRENT` |
+| US-Rendite 10J | FRED `DGS10` → Yahoo `^TNX` → Alpha Vantage `TREASURY_YIELD` |
 | **Bundesanleihe 10J** | **Bundesbank** → EZB-Zinskurve (Euroraum AAA) → FRED (monatlich) |
 | US-Dollar-Index | FRED `DTWEXBGS` (handelsgewichtet) → Yahoo `DX-Y.NYB` (DXY) |
-| EUR/USD | frankfurter (EZB) → Twelve Data `EUR/USD` → stooq `eurusd` |
-| DAX | Twelve Data `DAX` → Yahoo `^GDAXI` → stooq `^dax` |
+| EUR/USD | frankfurter (EZB) → Twelve Data `EUR/USD` → stooq `eurusd` → Alpha Vantage `FX_DAILY` |
+| DAX | Yahoo `^GDAXI` → stooq `^dax` → Twelve Data `GDAXI` |
 | Bitcoin | CoinGecko → Twelve Data `BTC/USD` → stooq `btcusd` |
 | VIX | **CBOE (offiziell, keyfrei)** → Twelve Data `VIX` → Yahoo `^VIX` → stooq `^vix` |
 
@@ -115,9 +116,12 @@ kommt HTML statt CSV zurueck), und **Yahoos inoffizielle Chart-API antwortet von
 Server-IPs praktisch immer mit HTTP 429**. Betroffen waren damit Gold, DAX und
 VIX komplett, weil deren Kette nur aus genau diesen beiden Quellen bestand.
 
-Twelve Data (kostenloser Tarif, Key noetig) steht deshalb bei diesen drei
-Kennzahlen an erster Stelle. stooq und Yahoo bleiben als Glieder dahinter – vom
-Heimanschluss aus funktionieren sie weiterhin und kosten dort kein Kontingent.
+Twelve Data (kostenloser Tarif, Key noetig) steht deshalb bei **Gold** an
+erster Stelle. Bei **VIX** uebernimmt inzwischen die CBOE direkt, beim **DAX**
+fuehrt Yahoo – Twelve Data liefert dort im freien Tarif keinen Index (siehe die
+beiden folgenden Abschnitte). stooq und Yahoo bleiben ueberall als Glieder
+dahinter – vom Heimanschluss aus funktionieren sie weiterhin und kosten dort
+kein Kontingent.
 
 Zwei Einschraenkungen, die du kennen solltest:
 
@@ -141,6 +145,31 @@ Symbol dann in `config/metrics.js` eintragen – fertig.
 Beim DAX habe ich bereits `exchange: 'XETR'` entfernt, weil genau diese
 Kombination den 404 ausgeloest hat.
 
+### Plausibilitaetsgrenzen: der wichtigste Schutz
+
+Jede Kennzahl hat in `config/metrics.js` ein Feld `sanity: { min, max }`.
+Liefert eine Quelle etwas ausserhalb, gilt sie als kaputt und die naechste
+Quelle uebernimmt – mit einer klaren Meldung im Log.
+
+Das faengt das gefaehrlichste Fehlerbild dieser Architektur ab: **ein Symbol
+existiert, meint aber etwas anderes.** Twelve Data liefert unter `DAX` den
+*Global X DAX Germany ETF* (NASDAQ, in Dollar) – rund 46 statt rund 26.000.
+Diese Zahl sah im Dashboard voellig plausibel aus; nur eben nicht als DAX.
+Genau deshalb steht in der Konfiguration ein Kommentar, dass dieses Symbol
+nicht zurueckgeaendert werden darf.
+
+Die Bereiche sind bewusst grosszuegig (DAX 3.000–200.000): sie sollen ueber
+Jahre halten und nur grobe Verwechslungen fangen, keine Marktbewegungen.
+
+**Bereits gespeicherte Falschwerte** raeumt `npm run prune` auf – es listet sie
+nach Quelle gruppiert auf und loescht erst mit `--yes`:
+
+```bash
+npm run prune                        # nur anzeigen
+npm run prune -- --metric dax --yes  # loeschen
+npm run update                       # Luecken neu fuellen
+```
+
 ### VIX und DAX ohne Twelve Data
 
 **VIX ist geloest:** Die CBOE berechnet den Index selbst und stellt die
@@ -149,13 +178,24 @@ Quelle. Der Provider schneidet direkt auf den angefragten Zeitraum zu, damit
 nicht bei jedem Lauf 9000 Zeilen seit 1990 in die Datenbank wandern.
 
 **Beim DAX gibt es keine vergleichbar saubere Gratisquelle.** Die Deutsche
-Boerse veroeffentlicht keine freie Kurs-API. Bleiben Twelve Data (mit dem
-richtigen Symbol, siehe oben), Yahoo (siehe naechster Abschnitt) und stooq.
+Boerse veroeffentlicht keine freie Kurs-API fuer den Index (ISIN DE0008469008,
+WKN 846900, Xetra). Der beste Weg zum echten Index ist deshalb Yahoo `^GDAXI`
+mit der Sitzung aus dem naechsten Abschnitt; stooq `^dax` liefert ihn ebenfalls,
+aber nur von Heim-IPs.
 
-Bewusst **nicht** eingebaut: ein Deutschland-ETF wie `EWG` als Ersatz. Der
-laeuft zwar auf dem freien Tarif, ist aber MSCI Germany in Dollar – die Karte
-hiesse „DAX" und zeigte ~30 statt ~18.500. Eine ehrlich leere Karte ist besser
-als eine falsche Zahl unter richtigem Namen.
+Bewusst **nicht** als Ersatz eingebaut sind ETFs, die den DAX abbilden – weder
+`EWG` (MSCI Germany) noch der Global X DAX Germany ETF, den Twelve Data unter
+`DAX` ausliefert. Beide notieren in Dollar bei zweistelligen Kursen. Eine
+ehrlich leere Karte ist besser als eine falsche Zahl unter richtigem Namen; die
+Plausibilitaetsgrenzen sorgen jetzt dafuer, dass so etwas gar nicht mehr
+durchrutschen kann.
+
+Auch **Alpha Vantage hilft beim DAX nicht** – Aktienindizes gehoeren nicht zum
+Angebot. Nuetzlich ist es dort, wo es eigene, kostenlose Fachendpunkte hat:
+Brent (`BRENT`), US-Rendite (`TREASURY_YIELD:10year`) und Wechselkurse
+(`FX_DAILY:EUR/USD`). Genau dafuer ist es als letzte Reserve eingetragen –
+letzte Position, weil der freie Tarif nur **25 Abrufe pro Tag** erlaubt und
+damit fuer den 15-Minuten-Takt ausscheidet.
 
 ### Yahoo: warum HTTP 429, und was dagegen hilft
 
@@ -352,6 +392,13 @@ gezeichnete Ansicht stehen, statt leer zu werden.
 
 Im Browser des Monitors einfach Vollbild (F11) und die URL als Startseite
 setzen. Der Knopf ⛶ oben rechts schaltet zwischen beiden Ansichten um.
+
+**Wenn eine Aenderung im Browser nicht ankommt:** Der Server liefert HTML, CSS
+und JS jetzt mit `ETag` und `cache-control: no-cache` aus, wird also bei jedem
+Aufruf revalidiert (ein 304 kostet praktisch nichts, die Dateien sind wenige
+KB). Vorher lagen sie 5 Minuten fest im Cache – dabei konnte man neues HTML mit
+altem CSS mischen, sodass der Kiosk-Knopf da war, die zugehoerigen CSS-Regeln
+aber fehlten und der Klick wirkungslos blieb.
 
 ### Frontend ausliefern
 

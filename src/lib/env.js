@@ -41,6 +41,7 @@ export const config = {
   anthropicApiKey: process.env.ANTHROPIC_API_KEY || '',
   fredApiKey: process.env.FRED_API_KEY || '',
   twelveDataApiKey: process.env.TWELVEDATA_API_KEY || '',
+  alphaVantageApiKey: process.env.ALPHAVANTAGE_API_KEY || '',
   aiModel: process.env.AI_MODEL || 'claude-haiku-4-5',
   aiMaxTokens: num(process.env.AI_MAX_TOKENS, 8000),
   skipAi: process.env.SKIP_AI === '1',

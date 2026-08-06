@@ -43,8 +43,8 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  fs.readFile(target, (err, buf) => {
-    if (err) {
+  fs.stat(target, (statErr, stat) => {
+    if (statErr || !stat.isFile()) {
       res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
       res.end(
         relative === 'data/latest.json'
@@ -53,14 +53,38 @@ const server = http.createServer((req, res) => {
       );
       return;
     }
+
+    // Alles revalidieren statt blind cachen.
+    //
+    // Vorher lagen HTML/CSS/JS 5 Minuten fest im Browser-Cache. Nach einem
+    // Update konnte man so neues HTML und altes CSS gemischt bekommen - der
+    // Kiosk-Knopf war da, die zugehoerigen CSS-Regeln fehlten, und der Klick
+    // blieb wirkungslos. Auf einem Monitor, der wochenlang laeuft, ist das
+    // besonders unangenehm. Die Dateien sind wenige KB gross; ein
+    // 304-Roundtrip kostet praktisch nichts.
+    const etag = `W/"${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}"`;
     const ext = path.extname(target).toLowerCase();
-    res.writeHead(200, {
+    const headers = {
       'content-type': MIME[ext] ?? 'application/octet-stream',
-      // Die JSON-Datei aendert sich taeglich und darf nicht im Browser haengen bleiben.
-      'cache-control': ext === '.json' ? 'no-cache' : 'public, max-age=300',
+      'cache-control': 'no-cache',
+      etag,
+      'last-modified': stat.mtime.toUTCString(),
       'x-content-type-options': 'nosniff',
+    };
+
+    if (req.headers['if-none-match'] === etag) {
+      res.writeHead(304, headers).end();
+      return;
+    }
+
+    fs.readFile(target, (readErr, buf) => {
+      if (readErr) {
+        res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' }).end('Lesefehler');
+        return;
+      }
+      res.writeHead(200, { ...headers, 'content-length': buf.length });
+      res.end(req.method === 'HEAD' ? undefined : buf);
     });
-    res.end(req.method === 'HEAD' ? undefined : buf);
   });
 });
 
