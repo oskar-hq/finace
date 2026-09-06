@@ -171,7 +171,10 @@ async function main() {
       // "reused" = dieser Lauf hat keine Texte erzeugt, zeigt aber die vom
       // heutigen Volllauf weiter.
       status: reusedTexts ? 'reused' : ai.status,
-      model: ai.status === 'ok' ? config.aiModel : (reusedTexts?.ai?.model ?? null),
+      // Modell und Anbieter kommen aus dem Lauf selbst - nicht aus der
+      // Konfiguration, sonst stuende bei einem Gemini-Lauf der Claude-Name da.
+      model: ai.status === 'ok' ? ai.model : (reusedTexts?.ai?.model ?? null),
+      provider: ai.status === 'ok' ? ai.provider : (reusedTexts?.ai?.provider ?? null),
       generated_at: reusedTexts ? reusedTexts.generated_at : null,
       error: ai.error,
       usage: ai.usage,

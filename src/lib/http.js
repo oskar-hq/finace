@@ -29,8 +29,13 @@ export async function fetchText(url, opts = {}) {
       });
       const body = await res.text();
       if (!res.ok) {
+        // Fehlergrund steht bei vielen APIs nur im Body (Gemini, Twelve Data,
+        // Alpha Vantage). Ohne ihn steht in der Meldung nur "HTTP 400".
+        const detail = body.trim().slice(0, 200).replace(/\s+/g, ' ');
         // 4xx sind in aller Regel dauerhaft - nicht weiter probieren.
-        const err = new Error(`HTTP ${res.status} ${res.statusText}`);
+        const err = new Error(
+          `HTTP ${res.status} ${res.statusText}${detail ? ` - ${detail}` : ''}`,
+        );
         if (res.status >= 400 && res.status < 500 && res.status !== 429) throw Object.assign(err, { fatal: true });
         throw err;
       }

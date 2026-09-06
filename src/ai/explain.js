@@ -1,86 +1,99 @@
-import Anthropic from '@anthropic-ai/sdk';
 import { config } from '../lib/env.js';
 import { log } from '../lib/log.js';
 import { SYSTEM_PROMPT, RESPONSE_SCHEMA, buildUserPrompt } from './prompt.js';
+import * as anthropic from './providers/anthropic.js';
+import * as gemini from './providers/gemini.js';
 
 /**
- * Genau ein Anthropic-Call pro Lauf: alle Kennzahlen, die Gesamteinschaetzung
- * und der Glossarbegriff werden in einer Anfrage erzeugt.
+ * Genau ein KI-Call pro Lauf: alle Kennzahlen, die Gesamteinschaetzung und der
+ * Glossarbegriff entstehen in einer einzigen Anfrage.
+ *
+ * Der Anbieter ist austauschbar. Beide bekommen denselben Prompt und dasselbe
+ * JSON-Schema (src/ai/prompt.js) - die Texte sind damit vergleichbar, egal
+ * welcher Dienst antwortet.
  *
  * Rueckgabe:
  *   { status: 'ok'|'skipped'|'error', explanations: Map<id,string>,
- *     summary, glossary, usage, error }
+ *     summary, glossary, usage, provider, model, error }
  */
+
+// Reihenfolge zaehlt bei AI_PROVIDER=auto: Gemini zuerst, weil es einen
+// kostenlosen Tarif hat. Wer beide Keys hinterlegt und trotzdem Claude will,
+// setzt AI_PROVIDER=anthropic.
+const PROVIDERS = [gemini, anthropic];
+
+export function chooseProvider() {
+  const wanted = (config.aiProvider || 'auto').toLowerCase();
+
+  if (wanted !== 'auto') {
+    const picked = PROVIDERS.find((p) => p.id === wanted);
+    if (!picked) {
+      return { error: `Unbekannter AI_PROVIDER "${wanted}" - erlaubt: gemini, anthropic, auto` };
+    }
+    if (!picked.isConfigured()) {
+      return { error: `AI_PROVIDER=${wanted}, aber ${picked.keyEnvVar} ist nicht gesetzt` };
+    }
+    return { provider: picked };
+  }
+
+  const picked = PROVIDERS.find((p) => p.isConfigured());
+  return picked ? { provider: picked } : { provider: null };
+}
+
 export async function generateExplanations(snapshots, metricsById, glossaryTerm, dateLabel) {
-  const empty = { explanations: new Map(), summary: null, glossary: null, usage: null };
+  const empty = {
+    explanations: new Map(),
+    summary: null,
+    glossary: null,
+    usage: null,
+    provider: null,
+    model: null,
+  };
 
   if (config.skipAi) {
     log.info('KI-Erklaerungen uebersprungen (SKIP_AI=1)');
     return { ...empty, status: 'skipped', error: null };
   }
-  if (!config.anthropicApiKey) {
+
+  const { provider, error: chooseError } = chooseProvider();
+  if (chooseError) {
+    log.error(chooseError);
+    return { ...empty, status: 'error', error: chooseError };
+  }
+  if (!provider) {
     // Kein Fehlerfall: ohne Key laeuft der Generator vollstaendig durch und
     // schreibt die Marktdaten - nur eben ohne Erklaerungstexte.
-    log.info('Kein ANTHROPIC_API_KEY gesetzt - Dashboard wird ohne Erklaerungen erzeugt');
+    log.info('Kein KI-Key gesetzt (GEMINI_API_KEY oder ANTHROPIC_API_KEY) - Dashboard ohne Erklaerungen');
     return { ...empty, status: 'skipped', error: null };
   }
 
-  const client = new Anthropic({ apiKey: config.anthropicApiKey });
-  const userPrompt = buildUserPrompt(snapshots, metricsById, glossaryTerm, dateLabel);
+  const model = provider.modelName();
+  log.info(`KI-Erklaerungen ueber ${provider.label}, Modell ${model}`);
 
-  const request = {
-    model: config.aiModel,
-    max_tokens: config.aiMaxTokens,
-    system: SYSTEM_PROMPT,
-    messages: [{ role: 'user', content: userPrompt }],
-  };
-
-  let response;
+  let result;
   try {
-    // Bevorzugt mit Structured Outputs - dann ist die Antwort garantiert
-    // schema-konformes JSON.
-    response = await client.messages.create({
-      ...request,
-      output_config: { format: { type: 'json_schema', schema: RESPONSE_SCHEMA } },
+    result = await provider.generate({
+      systemPrompt: SYSTEM_PROMPT,
+      userPrompt: buildUserPrompt(snapshots, metricsById, glossaryTerm, dateLabel),
+      schema: RESPONSE_SCHEMA,
     });
   } catch (err) {
-    log.warn(`Structured Output nicht moeglich (${err.message}) - versuche Klartext-JSON`);
-    try {
-      response = await client.messages.create({
-        ...request,
-        messages: [
-          {
-            role: 'user',
-            content:
-              `${userPrompt}\n\nAntworte AUSSCHLIESSLICH mit einem JSON-Objekt dieser Form, ohne ` +
-              'Code-Fences und ohne Text davor oder danach:\n' +
-              '{"summary": "...", "glossary": "...", "metrics": [{"id": "...", "text": "..."}]}',
-          },
-        ],
-      });
-    } catch (err2) {
-      log.error(`Anthropic-Aufruf fehlgeschlagen: ${err2.message}`);
-      return { ...empty, status: 'error', error: err2.message };
-    }
+    log.error(`${provider.label}: ${err.message}`);
+    return { ...empty, status: 'error', provider: provider.id, model, error: err.message };
   }
-
-  if (response.stop_reason === 'refusal') {
-    log.error('Anthropic hat die Anfrage abgelehnt (stop_reason: refusal)');
-    return { ...empty, status: 'error', error: 'Anfrage abgelehnt (refusal)' };
-  }
-
-  const text = response.content
-    .filter((b) => b.type === 'text')
-    .map((b) => b.text)
-    .join('')
-    .trim();
 
   let parsed;
   try {
-    parsed = JSON.parse(stripFences(text));
+    parsed = JSON.parse(stripFences(result.text));
   } catch {
-    log.error('Antwort der KI war kein gueltiges JSON');
-    return { ...empty, status: 'error', error: 'Antwort war kein gueltiges JSON' };
+    log.error(`Antwort von ${provider.label} war kein gueltiges JSON`);
+    return {
+      ...empty,
+      status: 'error',
+      provider: provider.id,
+      model,
+      error: 'Antwort war kein gueltiges JSON',
+    };
   }
 
   const explanations = new Map();
@@ -88,17 +101,9 @@ export async function generateExplanations(snapshots, metricsById, glossaryTerm,
     if (item?.id && typeof item.text === 'string') explanations.set(item.id, item.text.trim());
   }
 
-  if (response.stop_reason === 'max_tokens') {
-    log.warn('KI-Antwort wurde durch max_tokens abgeschnitten - AI_MAX_TOKENS erhoehen');
-  }
-
-  const usage = {
-    input_tokens: response.usage?.input_tokens ?? null,
-    output_tokens: response.usage?.output_tokens ?? null,
-  };
   log.ok(
     `KI-Erklaerungen erzeugt: ${explanations.size}/${snapshots.length} Kennzahlen, ` +
-      `${usage.input_tokens} in / ${usage.output_tokens} out Tokens`,
+      `${result.usage.input_tokens} in / ${result.usage.output_tokens} out Tokens`,
   );
 
   return {
@@ -106,7 +111,9 @@ export async function generateExplanations(snapshots, metricsById, glossaryTerm,
     explanations,
     summary: typeof parsed.summary === 'string' ? parsed.summary.trim() : null,
     glossary: typeof parsed.glossary === 'string' ? parsed.glossary.trim() : null,
-    usage,
+    usage: result.usage,
+    provider: provider.id,
+    model,
     error: null,
   };
 }

@@ -13,6 +13,7 @@ import { METRICS } from '../config/metrics.js';
 import { config } from './lib/env.js';
 import { PROVIDERS } from './providers/index.js';
 import { symbolSearch } from './providers/twelvedata.js';
+import { chooseProvider } from './ai/explain.js';
 import { today, shiftDays, daysBetween } from './lib/dates.js';
 
 const range = { from: shiftDays(today(), -30), to: today() };
@@ -33,7 +34,16 @@ console.log(
   }`,
 );
 console.log(`FRED_API_KEY: ${config.fredApiKey ? 'gesetzt' : 'NICHT gesetzt (FRED wird uebersprungen)'}`);
-console.log(`ANTHROPIC_API_KEY: ${config.anthropicApiKey ? 'gesetzt' : 'NICHT gesetzt (keine Erklaerungen)'}`);
+const aiChoice = chooseProvider();
+console.log(
+  `KI-Erklaerungen: ${
+    aiChoice.error
+      ? `FEHLER - ${aiChoice.error}`
+      : aiChoice.provider
+        ? `${aiChoice.provider.label}, Modell ${aiChoice.provider.modelName()}`
+        : 'kein Key gesetzt (GEMINI_API_KEY oder ANTHROPIC_API_KEY) - Dashboard laeuft ohne Texte'
+  }`,
+);
 console.log('');
 
 /**

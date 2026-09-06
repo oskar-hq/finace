@@ -42,7 +42,12 @@ export const config = {
   fredApiKey: process.env.FRED_API_KEY || '',
   twelveDataApiKey: process.env.TWELVEDATA_API_KEY || '',
   alphaVantageApiKey: process.env.ALPHAVANTAGE_API_KEY || '',
+  geminiApiKey: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '',
+  // 'auto' nimmt den ersten Anbieter, fuer den ein Key hinterlegt ist -
+  // Reihenfolge siehe src/ai/explain.js. 'gemini' oder 'anthropic' erzwingen.
+  aiProvider: process.env.AI_PROVIDER || 'auto',
   aiModel: process.env.AI_MODEL || 'claude-haiku-4-5',
+  geminiModel: process.env.GEMINI_MODEL || 'gemini-3.8-flash',
   aiMaxTokens: num(process.env.AI_MAX_TOKENS, 8000),
   skipAi: process.env.SKIP_AI === '1',
   dbPath: abs(process.env.DB_PATH || './data/finance.db'),

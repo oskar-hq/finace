@@ -5,9 +5,10 @@ Quellen, per Cron aktualisiert – einmal taeglich oder im 15-Minuten-Takt. Es g
 eine **Monitor-Ansicht ohne Scrollen** (`?kiosk`) fuer einen fest montierten
 Bildschirm.
 
-Optional kann pro Tag ein Anthropic-Call zu jeder Kennzahl eine kurze Erklaerung
-auf Deutsch schreiben. Das ist ein Zusatz, kein Kern: ohne API-Key laeuft alles
-unveraendert durch.
+Optional kann pro Tag **ein** KI-Call zu jeder Kennzahl eine kurze Erklaerung
+auf Deutsch schreiben – wahlweise ueber **Google Gemini** (kostenloser Tarif)
+oder **Anthropic (Claude)**. Das ist ein Zusatz, kein Kern: ohne API-Key laeuft
+alles unveraendert durch.
 
 Zwei getrennte Teile:
 
@@ -18,7 +19,7 @@ Zwei getrennte Teile:
    ausschliesslich diese JSON-Datei. Keine API-Calls, keine Secrets im Browser,
    sofortiger Seitenaufbau.
 
-Pro Tag faellt genau **ein** Anthropic-Call an (alle Kennzahlen in einer Anfrage) –
+Pro Tag faellt genau **ein** KI-Call an (alle Kennzahlen in einer Anfrage) –
 und auch der ist optional: ohne API-Key laeuft alles durch, nur eben ohne Texte.
 
 ---
@@ -35,7 +36,7 @@ npm run update            # Daten holen + Erklaerungen erzeugen
 npm run serve             # http://127.0.0.1:8080
 ```
 
-**Beide API-Keys sind optional.** Ohne `ANTHROPIC_API_KEY` laeuft `npm run update`
+**Alle API-Keys sind optional.** Ohne KI-Key laeuft `npm run update`
 vollstaendig durch und schreibt die Marktdaten – es entfallen nur die
 Erklaerungstexte, die Gesamteinschaetzung und der Begriff des Tages. Die Karten
 zeigen dann Wert, Veraenderungen und Verlauf ohne Textblock; oben steht ein
@@ -84,7 +85,8 @@ src/
     bundesbank.js  ecb.js  frankfurter.js  coingecko.js
   ai/
     prompt.js           System-Prompt, User-Prompt, JSON-Schema
-    explain.js          der eine Anthropic-Call pro Tag
+    explain.js          Anbieterwahl + der eine KI-Call pro Tag
+    providers/          gemini.js  anthropic.js
     glossary.js         Rotation "Begriff des Tages"
 public/
   index.html  styles.css  app.js
@@ -286,9 +288,32 @@ genug Historie aus der neuen Quelle vorliegt. Das ist Absicht, kein Fehler.
 
 ## Die KI-Erklaerungen
 
-Ein Call pro Tag mit `claude-haiku-4-5`, alle Kennzahlen gebuendelt, Antwort als
-schema-validiertes JSON (Structured Outputs; faellt automatisch auf normales
-JSON-Parsing zurueck, falls das Modell das Format nicht unterstuetzt).
+Ein Call pro Tag, alle Kennzahlen gebuendelt, Antwort als schema-validiertes
+JSON (faellt automatisch auf normales JSON-Parsing zurueck, falls das Modell
+das Format nicht unterstuetzt).
+
+**Zwei Anbieter zur Wahl** – beide bekommen denselben Prompt und dasselbe
+Schema aus `src/ai/prompt.js`, die Texte sind also vergleichbar:
+
+| Anbieter | Key | Kosten |
+|---|---|---|
+| **Google Gemini** | `GEMINI_API_KEY` ([AI Studio](https://aistudio.google.com/apikey)) | kostenloser Tarif |
+| **Anthropic (Claude)** | `ANTHROPIC_API_KEY` | rund 1 US-Cent pro Tag |
+
+`AI_PROVIDER` steuert die Wahl: `auto` (Standard) nimmt den ersten Anbieter,
+fuer den ein Key hinterlegt ist – **Gemini zuerst, weil kostenlos**. Wer beide
+Keys hat und trotzdem Claude will, setzt `AI_PROVIDER=anthropic`.
+
+Die Modellnamen stehen in `GEMINI_MODEL` (Standard `gemini-3.8-flash`) und
+`AI_MODEL` (Standard `claude-haiku-4-5`). Bei Google wechseln die Namen
+haeufig; passt der eingetragene nicht, **nennt die Fehlermeldung die tatsaechlich
+verfuegbaren Modelle** – der Provider fragt dafuer Googles Modell-Liste ab.
+
+Der Gemini-Key geht als Header `x-goog-api-key` raus, nicht als
+Query-Parameter. So kann er gar nicht erst in einer URL landen, die irgendwo
+protokolliert wird. Angesprochen wird die REST-Schnittstelle direkt per
+`fetch` – so bleibt das Projekt bei genau einer npm-Abhaengigkeit, statt fuer
+einen optionalen Zusatzanbieter ein zweites SDK mitzuschleppen.
 
 Der System-Prompt (`src/ai/prompt.js`) legt fest:
 
@@ -306,13 +331,15 @@ Dazu kommen eine Gesamteinschaetzung ueber alle Kennzahlen und der **Begriff des
 Tages** aus der Liste in `config/metrics.js` – rotierend, sodass erst alle 25
 Begriffe durchlaufen, bevor sich einer wiederholt.
 
-**Kosten:** rund 1.400 Eingabe- und 1.500 Ausgabe-Tokens pro Lauf. Mit Haiku 4.5
-sind das grob 1 US-Cent pro Tag, also etwa 3 US-Dollar im Jahr.
+**Kosten:** rund 1.400 Eingabe- und 1.500 Ausgabe-Tokens pro Lauf. Mit Gemini
+im kostenlosen Tarif also nichts; mit Haiku 4.5 grob 1 US-Cent pro Tag, etwa
+3 US-Dollar im Jahr.
 
 ### Betrieb ohne Key
 
-Der Anthropic-Call ist durchgehend optional. Ist kein `ANTHROPIC_API_KEY`
-gesetzt (oder steht `SKIP_AI=1`), wird er ohne Fehlermeldung uebersprungen:
+Der KI-Call ist durchgehend optional. Ist weder `GEMINI_API_KEY` noch
+`ANTHROPIC_API_KEY` gesetzt (oder steht `SKIP_AI=1`), wird er ohne
+Fehlermeldung uebersprungen:
 
 * `npm run update` laeuft normal durch und schreibt `latest.json` mit allen
   Marktdaten. Der Exit-Code haengt allein daran, ob Daten geholt werden konnten –
@@ -454,7 +481,8 @@ auch wenn die Seite keine Geheimnisse enthaelt.
 
 ## Sicherheit
 
-* Alle Keys (`ANTHROPIC_API_KEY`, `TWELVEDATA_API_KEY`, `FRED_API_KEY`) stehen
+* Alle Keys (`GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `TWELVEDATA_API_KEY`,
+  `ALPHAVANTAGE_API_KEY`, `FRED_API_KEY`) stehen
   ausschliesslich in `.env` und werden nur serverseitig gelesen. `.env` ist per
   `.gitignore` ausgeschlossen.
 * **Keys tauchen nie in Fehlermeldungen auf.** Twelve Data und FRED erwarten den
@@ -491,10 +519,18 @@ Ehrlich dazugesagt, damit klar ist, was hier bereits lief und was nicht:
   Dezimalkommas), Monatswerte, fehlende Werte (`.`) und eine Datei ohne
   Kopfzeile; der CBOE-Parser gegen gemischte Datumsformate (`M/D/YYYY` und ISO)
   samt Zeitraumfilter. Die Key-Redaktion ist gegen eine echte Twelve-Data-URL
-  geprueft.
+  geprueft. Der Gemini-Anbieter ist gegen einen Mock in Googles Antwortformat
+  getestet: kompletter Lauf bis in die `latest.json`, Key kommt als Header an,
+  `responseSchema` und `systemInstruction` werden gesendet, ein unbekannter
+  Modellname fuehrt zur Liste der verfuegbaren Modelle, und die Anbieterwahl
+  stimmt in allen Faellen (nur Gemini, nur Claude, beide, keiner, erzwungen
+  ohne Key).
 * **Nicht getestet:** die tatsaechlichen HTTP-Abrufe bei Twelve Data, CBOE,
   Bundesbank, EZB, stooq, Yahoo, FRED, frankfurter und CoinGecko sowie der
-  Anthropic-Call – die Entwicklungsumgebung erreicht keinen dieser Hosts.
+  KI-Call bei Gemini und Anthropic – die Entwicklungsumgebung erreicht keinen
+  dieser Hosts. Beim Gemini-Modellnamen `gemini-3.8-flash` gilt das besonders:
+  er stammt aus Googles Doku, nicht aus einem echten Aufruf. Passt er nicht,
+  nennt die Fehlermeldung die verfuegbaren Modelle.
   Besonders im Blick behalten: welches Twelve-Data-Symbol der DAX wirklich hat
   (`verify` schlaegt Kandidaten vor), ob der Yahoo-Sitzungsaufbau von deiner
   Server-IP durchgeht, und ob die Bundesbank-Reihe genau dieses CSV-Format
