@@ -101,9 +101,13 @@ export async function generateExplanations(snapshots, metricsById, glossaryTerm,
     if (item?.id && typeof item.text === 'string') explanations.set(item.id, item.text.trim());
   }
 
+  // Bei Ueberlastung kann ein Ausweichmodell geantwortet haben - fuer Log und
+  // Ausgabe zaehlt, wer den Text wirklich geschrieben hat.
+  const usedModel = result.model ?? model;
   log.ok(
-    `KI-Erklaerungen erzeugt: ${explanations.size}/${snapshots.length} Kennzahlen, ` +
-      `${result.usage.input_tokens} in / ${result.usage.output_tokens} out Tokens`,
+    `KI-Erklaerungen erzeugt (${usedModel}): ${explanations.size}/${snapshots.length} Kennzahlen, ` +
+      `${result.usage.input_tokens} in / ${result.usage.output_tokens} out Tokens` +
+      (result.usage.thinking_tokens ? ` (+${result.usage.thinking_tokens} intern)` : ''),
   );
 
   return {
@@ -113,7 +117,7 @@ export async function generateExplanations(snapshots, metricsById, glossaryTerm,
     glossary: typeof parsed.glossary === 'string' ? parsed.glossary.trim() : null,
     usage: result.usage,
     provider: provider.id,
-    model,
+    model: usedModel,
     error: null,
   };
 }

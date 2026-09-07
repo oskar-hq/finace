@@ -20,12 +20,43 @@ export const keyEnvVar = 'GEMINI_API_KEY';
 
 const BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
+/**
+ * Standardmodell: bewusst der Alias und keine feste Versionsnummer. Google
+ * zieht ihn auf das jeweils aktuelle Flash-Modell nach, waehrend konkrete
+ * Versionen mit der Zeit verschwinden - `gemini-2.5-flash` antwortet heute
+ * schon mit HTTP 404. Ein Dashboard im Cron-Betrieb soll deswegen nicht eines
+ * Tages stumm ausfallen.
+ */
+export const DEFAULT_MODEL = 'gemini-flash-latest';
+
+/**
+ * Ausweichmodell, wenn das eingestellte ueberlastet ist.
+ *
+ * Der kostenlose Tarif teilt sich die Kapazitaet mit vielen anderen: die
+ * grossen Flash-Modelle antworten dort regelmaessig mit HTTP 503 ("high
+ * demand"), waehrend die Lite-Variante in denselben Sekunden durchlaeuft.
+ * Statt den Tageslauf ohne Texte zu beenden, wird dann das kleinere Modell
+ * gefragt - erkennbar an ai.model in der latest.json.
+ *
+ * Nur aktiv, solange GEMINI_MODEL beim Standard steht: wer ein Modell fest
+ * vorgibt, bekommt genau dieses.
+ */
+const BUSY_FALLBACK_MODEL = 'gemini-flash-lite-latest';
+
+/** Ueberlastet (503) oder Kontingent erschoepft (429) - hier lohnt Warten. */
+const isBusy = (err) => err.status === 429 || err.status === 503;
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 export function isConfigured() {
   return Boolean(config.geminiApiKey);
 }
 
+/** Leeres GEMINI_MODEL heisst: Standardmodell samt Ausweichkette. */
+const activeModel = () => config.geminiModel || DEFAULT_MODEL;
+
 export function modelName() {
-  return config.geminiModel;
+  return activeModel();
 }
 
 /**
@@ -56,8 +87,8 @@ function toGeminiSchema(schema) {
   return out;
 }
 
-async function callGemini(body) {
-  const url = `${BASE}/models/${encodeURIComponent(config.geminiModel)}:generateContent`;
+async function callGemini(body, model = config.geminiModel) {
+  const url = `${BASE}/models/${encodeURIComponent(model)}:generateContent`;
   const res = await fetch(url, {
     method: 'POST',
     headers: {
@@ -78,6 +109,35 @@ async function callGemini(body) {
     throw err;
   }
   return JSON.parse(text);
+}
+
+/**
+ * Der eine Call pro Tag soll nicht an einer Lastspitze scheitern: bei 429/503
+ * zweimal nachfassen (2s, 4s) und danach das Ausweichmodell probieren.
+ *
+ * @returns {Promise<{ json: object, model: string }>}
+ */
+async function callGeminiResilient(body) {
+  const models = config.geminiModel ? [config.geminiModel] : [DEFAULT_MODEL, BUSY_FALLBACK_MODEL];
+
+  let lastErr;
+  for (const model of models) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        return { json: await callGemini(body, model), model };
+      } catch (err) {
+        lastErr = err;
+        if (!isBusy(err)) throw err;
+        if (attempt < 2) {
+          log.warn(`${model} gerade ueberlastet (HTTP ${err.status}) - neuer Versuch`);
+          await sleep(2000 * 2 ** attempt);
+        }
+      }
+    }
+    const next = models[models.indexOf(model) + 1];
+    if (next) log.warn(`${model} bleibt ueberlastet - weiter mit ${next}`);
+  }
+  throw lastErr;
 }
 
 /**
@@ -102,7 +162,9 @@ async function suggestModels() {
 }
 
 /**
- * @returns {Promise<{ text: string, usage: {input_tokens, output_tokens} }>}
+ * @returns {Promise<{ text: string, usage: object, model: string }>}
+ *          model = das Modell, das tatsaechlich geantwortet hat (kann bei
+ *          Ueberlastung das Ausweichmodell sein).
  */
 export async function generate({ systemPrompt, userPrompt, schema }) {
   const base = {
@@ -111,29 +173,33 @@ export async function generate({ systemPrompt, userPrompt, schema }) {
   };
 
   let json;
+  let model;
   try {
-    json = await callGemini({
+    ({ json, model } = await callGeminiResilient({
       ...base,
       generationConfig: {
         maxOutputTokens: config.aiMaxTokens,
         responseMimeType: 'application/json',
         responseSchema: toGeminiSchema(schema),
       },
-    });
+    }));
   } catch (err) {
     if (err.status === 404) {
       const models = await suggestModels();
       throw new Error(
-        `Modell "${config.geminiModel}" gibt es nicht.` +
+        `Modell "${activeModel()}" gibt es nicht.` +
           (models.length
             ? ` Verfuegbar waeren u.a.: ${models.join(', ')}. Passendes Modell in GEMINI_MODEL eintragen.`
             : ' Verfuegbare Modelle konnten nicht abgefragt werden - Key pruefen.'),
       );
     }
+    // Ueberlastung ist kein Formatproblem - da hat callGeminiResilient bereits
+    // alles versucht, und ein Call ohne Schema wuerde genauso abgewiesen.
+    if (isBusy(err)) throw err;
     // Manche Modelle/Tarife lehnen responseSchema ab. Dann ohne Schema, mit
     // der Formatvorgabe im Prompt - dasselbe Muster wie bei Anthropic.
     log.warn(`Gemini: Structured Output nicht moeglich (${err.message}) - versuche Klartext-JSON`);
-    json = await callGemini({
+    ({ json, model } = await callGeminiResilient({
       ...base,
       contents: [
         {
@@ -149,7 +215,7 @@ export async function generate({ systemPrompt, userPrompt, schema }) {
         },
       ],
       generationConfig: { maxOutputTokens: config.aiMaxTokens, responseMimeType: 'application/json' },
-    });
+    }));
   }
 
   const blocked = json?.promptFeedback?.blockReason;
@@ -164,13 +230,19 @@ export async function generate({ systemPrompt, userPrompt, schema }) {
   }
 
   return {
+    model,
+    // Denk-Bloecke sind kein Antworttext und haben im JSON nichts zu suchen.
     text: (candidate.content?.parts ?? [])
+      .filter((p) => !p.thought)
       .map((p) => p.text ?? '')
       .join('')
       .trim(),
     usage: {
       input_tokens: json.usageMetadata?.promptTokenCount ?? null,
       output_tokens: json.usageMetadata?.candidatesTokenCount ?? null,
+      // Gemini denkt vor der Antwort nach. Diese Tokens stehen nicht im Text,
+      // zaehlen aber gegen AI_MAX_TOKENS - darum hier sichtbar gemacht.
+      thinking_tokens: json.usageMetadata?.thoughtsTokenCount ?? null,
     },
   };
 }

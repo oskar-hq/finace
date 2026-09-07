@@ -304,10 +304,27 @@ Schema aus `src/ai/prompt.js`, die Texte sind also vergleichbar:
 fuer den ein Key hinterlegt ist – **Gemini zuerst, weil kostenlos**. Wer beide
 Keys hat und trotzdem Claude will, setzt `AI_PROVIDER=anthropic`.
 
-Die Modellnamen stehen in `GEMINI_MODEL` (Standard `gemini-3.8-flash`) und
-`AI_MODEL` (Standard `claude-haiku-4-5`). Bei Google wechseln die Namen
-haeufig; passt der eingetragene nicht, **nennt die Fehlermeldung die tatsaechlich
-verfuegbaren Modelle** – der Provider fragt dafuer Googles Modell-Liste ab.
+Die Modellnamen stehen in `GEMINI_MODEL` und `AI_MODEL` (Standard
+`claude-haiku-4-5`). Bei Google wechseln die Namen haeufig; passt der
+eingetragene nicht, **nennt die Fehlermeldung die tatsaechlich verfuegbaren
+Modelle** – der Provider fragt dafuer Googles Modell-Liste ab.
+
+**`GEMINI_MODEL` laesst man am besten leer.** Dann gilt der Alias
+`gemini-flash-latest`, und zwei Eigenheiten des kostenlosen Tarifs sind
+abgefangen, die im Betrieb wirklich auftreten:
+
+* Die grossen Flash-Modelle antworten dort regelmaessig mit
+  `HTTP 503 – high demand`. Der Provider fasst deshalb zweimal nach (2 s, 4 s)
+  und weicht danach auf `gemini-flash-lite-latest` aus. In `latest.json` steht
+  unter `ai.model`, wer tatsaechlich geantwortet hat. Wer `GEMINI_MODEL` fest
+  setzt, bekommt genau dieses Modell und kein Ausweichmanoever.
+* Feste Versionsnummern verschwinden mit der Zeit – `gemini-2.5-flash`
+  antwortet bereits mit 404. Den Alias zieht Google dagegen nach.
+
+Noch eine Gemini-Eigenheit: das Modell denkt vor der Antwort nach, und diese
+internen Tokens zaehlen gegen `AI_MAX_TOKENS`. Sie stehen als
+`ai.usage.thinking_tokens` in der Ausgabe (im Testlauf 500–1.600 Stueck);
+unter 8.000 wird es damit schnell knapp.
 
 Der Gemini-Key geht als Header `x-goog-api-key` raus, nicht als
 Query-Parameter. So kann er gar nicht erst in einer URL landen, die irgendwo
@@ -331,9 +348,9 @@ Dazu kommen eine Gesamteinschaetzung ueber alle Kennzahlen und der **Begriff des
 Tages** aus der Liste in `config/metrics.js` – rotierend, sodass erst alle 25
 Begriffe durchlaufen, bevor sich einer wiederholt.
 
-**Kosten:** rund 1.400 Eingabe- und 1.500 Ausgabe-Tokens pro Lauf. Mit Gemini
-im kostenlosen Tarif also nichts; mit Haiku 4.5 grob 1 US-Cent pro Tag, etwa
-3 US-Dollar im Jahr.
+**Kosten:** rund 2.100 Eingabe- und 1.300–1.600 Ausgabe-Tokens pro Lauf (bei
+Gemini kommen die Denk-Tokens obendrauf). Mit Gemini im kostenlosen Tarif also
+nichts; mit Haiku 4.5 grob 1 US-Cent pro Tag, etwa 3 US-Dollar im Jahr.
 
 ### Betrieb ohne Key
 
@@ -525,12 +542,20 @@ Ehrlich dazugesagt, damit klar ist, was hier bereits lief und was nicht:
   Modellname fuehrt zur Liste der verfuegbaren Modelle, und die Anbieterwahl
   stimmt in allen Faellen (nur Gemini, nur Claude, beide, keiner, erzwungen
   ohne Key).
+  **Inzwischen auch gegen die echte Gemini-API geprueft:** vollstaendiger Lauf
+  mit `AI_PROVIDER=gemini`, Text zu allen zehn Kennzahlen plus
+  Gesamteinschaetzung und Begriff des Tages als schema-konformes JSON, sowohl
+  mit dem Alias als auch mit fest gesetztem `GEMINI_MODEL`; ein unbekannter
+  Modellname liefert wirklich die Modell-Liste. Das Ausweichen bei
+  Ueberlastung ist gegen ein erzwungenes `HTTP 503` geprueft (zwei Nachfassen,
+  dann `gemini-flash-lite-latest`, und `ai.model` weist das aus). Das
+  `HTTP 503` der grossen Flash-Modelle und das 404 auf `gemini-2.5-flash`
+  wurden dabei real beobachtet – daher der Alias als Standard.
 * **Nicht getestet:** die tatsaechlichen HTTP-Abrufe bei Twelve Data, CBOE,
   Bundesbank, EZB, stooq, Yahoo, FRED, frankfurter und CoinGecko sowie der
-  KI-Call bei Gemini und Anthropic – die Entwicklungsumgebung erreicht keinen
-  dieser Hosts. Beim Gemini-Modellnamen `gemini-3.8-flash` gilt das besonders:
-  er stammt aus Googles Doku, nicht aus einem echten Aufruf. Passt er nicht,
-  nennt die Fehlermeldung die verfuegbaren Modelle.
+  KI-Call bei Anthropic – die Entwicklungsumgebung erreicht keinen
+  dieser Hosts. (Googles Endpunkt war erreichbar und steht deshalb oben unter
+  „getestet".)
   Besonders im Blick behalten: welches Twelve-Data-Symbol der DAX wirklich hat
   (`verify` schlaegt Kandidaten vor), ob der Yahoo-Sitzungsaufbau von deiner
   Server-IP durchgeht, und ob die Bundesbank-Reihe genau dieses CSV-Format
