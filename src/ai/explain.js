@@ -51,7 +51,9 @@ export async function generateExplanations(snapshots, metricsById, glossaryTerm,
   };
 
   if (config.skipAi) {
-    log.info('KI-Erklaerungen uebersprungen (SKIP_AI=1)');
+    // Warum, weiss der Aufrufer (SKIP_AI, --no-ai, oder ein kurzer Lauf, dem
+    // die Texte des Tages schon vorliegen) - der hat es bereits protokolliert.
+    log.info('KI-Erklaerungen uebersprungen - kein Call in diesem Lauf');
     return { ...empty, status: 'skipped', error: null };
   }
 

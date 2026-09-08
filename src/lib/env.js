@@ -53,6 +53,8 @@ export const config = {
   // (siehe src/ai/providers/gemini.js).
   geminiModel: process.env.GEMINI_MODEL || '',
   aiMaxTokens: num(process.env.AI_MAX_TOKENS, 8000),
+  // Wie oft ein Tag hoechstens einen fehlgeschlagenen KI-Call nachholen darf.
+  aiMaxAttempts: num(process.env.AI_MAX_ATTEMPTS, 6),
   skipAi: process.env.SKIP_AI === '1',
   dbPath: abs(process.env.DB_PATH || './data/finance.db'),
   outputPath: abs(process.env.OUTPUT_PATH || './public/data/latest.json'),

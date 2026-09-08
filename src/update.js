@@ -17,7 +17,14 @@
 import { METRICS, CHANGE_WINDOWS } from '../config/metrics.js';
 import { config } from './lib/env.js';
 import { log } from './lib/log.js';
-import { openDb, upsertSeries, readSeries, startRun, finishRun } from './lib/db.js';
+import {
+  openDb,
+  upsertSeries,
+  readSeries,
+  startRun,
+  finishRun,
+  countFailedAiRuns,
+} from './lib/db.js';
 import { collectMetric } from './providers/index.js';
 import { buildSnapshot, deriveSeries } from './lib/analyze.js';
 import { writeJsonAtomic, readPreviousOutput } from './lib/output.js';
@@ -37,8 +44,9 @@ async function main() {
   log.info(
     `Lauf gestartet (${quickFlag ? 'quick' : 'voll'}) - Zeitraum ${range.from} bis ${range.to}`,
   );
-  // Ein haeufiger Takt soll nie einen KI-Call ausloesen.
-  if (noAiFlag || quickFlag) config.skipAi = true;
+  if (noAiFlag) log.info('KI-Erklaerungen abgeschaltet (--no-ai)');
+  if (config.skipAi) log.info('KI-Erklaerungen abgeschaltet (SKIP_AI=1)');
+  if (noAiFlag) config.skipAi = true;
 
   const db = openDb();
   const runId = startRun(db);
@@ -110,6 +118,33 @@ async function main() {
   });
 
   // --- 4. KI-Erklaerungen (genau ein Call) --------------------------------
+  // Ein kurzer Lauf ruft die KI normalerweise nicht auf, sondern reicht die
+  // Texte des Volllaufs weiter. Ausnahme: fuer heute gibt es noch keine. Dann
+  // holt er den Call nach, statt das Dashboard bis zum naechsten Morgen ohne
+  // Texte zu lassen - der Morgenlauf faellt z.B. aus, wenn der Anbieter gerade
+  // ueberlastet ist. Sobald ein Versuch klappt, ist wieder Ruhe.
+  const previous = readPreviousOutput(config.outputPath);
+  const hasTodaysTexts = previous?.data_date === runDate && Boolean(previous.ai?.summary);
+
+  if (quickFlag && !config.skipAi) {
+    const failedToday = countFailedAiRuns(db, runDate);
+    if (hasTodaysTexts) {
+      log.info('Texte von heute liegen vor - kurzer Lauf reicht sie weiter, ohne KI-Call');
+      config.skipAi = true;
+    } else if (failedToday >= config.aiMaxAttempts) {
+      // Deckel gegen einen dauerhaft gestoerten Dienst: sonst unternaehmen die
+      // 96 kurzen Laeufe eines Tages auch 96 Anlaeufe - bei Gemini waere das
+      // Tageskontingent des kostenlosen Tarifs danach fuer nichts verbraucht.
+      log.info(
+        `KI heute schon ${failedToday}x fehlgeschlagen (AI_MAX_ATTEMPTS=${config.aiMaxAttempts}) - ` +
+          'kein weiterer Versuch bis morgen',
+      );
+      config.skipAi = true;
+    } else {
+      log.info(`Noch keine Texte fuer heute - kurzer Lauf holt den KI-Call nach (Versuch ${failedToday + 1})`);
+    }
+  }
+
   let glossaryTerm = chooseGlossaryTerm(db);
   const ai = await generateExplanations(
     snapshots,
@@ -142,8 +177,7 @@ async function main() {
   // wuerde zu den heutigen Zahlen nicht mehr passen.
   let reusedTexts = null;
   if (ai.status !== 'ok') {
-    const previous = readPreviousOutput(config.outputPath);
-    if (previous?.data_date === runDate && previous.ai?.summary) {
+    if (hasTodaysTexts) {
       reusedTexts = previous;
       const previousById = new Map((previous.metrics ?? []).map((m) => [m.id, m]));
       for (const snap of snapshots) {

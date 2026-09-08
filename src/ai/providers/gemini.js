@@ -113,29 +113,38 @@ async function callGemini(body, model = config.geminiModel) {
 
 /**
  * Der eine Call pro Tag soll nicht an einer Lastspitze scheitern: bei 429/503
- * zweimal nachfassen (2s, 4s) und danach das Ausweichmodell probieren.
+ * nachfassen (2s, 4s) und danach das Ausweichmodell probieren.
+ *
+ * Die Versuche sind ungleich verteilt, und zwar entlang der Kontingente des
+ * kostenlosen Tarifs: die grossen Flash-Modelle erlauben dort nur 20 Anfragen
+ * pro Tag und 5 pro Minute, die Lite-Modelle dagegen 500 bzw. 15. Beim
+ * Standardmodell lohnt Nachfassen deshalb nicht - jeder Fehlversuch kostet
+ * einen der 20 Tagesabrufe. Also einmal anklopfen und dann dorthin wechseln,
+ * wo Wiederholungen billig sind.
  *
  * @returns {Promise<{ json: object, model: string }>}
  */
 async function callGeminiResilient(body) {
   const models = config.geminiModel ? [config.geminiModel] : [DEFAULT_MODEL, BUSY_FALLBACK_MODEL];
+  const attemptsFor = (model) => (models.length > 1 && model === models[0] ? 1 : 3);
 
   let lastErr;
   for (const model of models) {
-    for (let attempt = 0; attempt < 3; attempt++) {
+    const attempts = attemptsFor(model);
+    for (let attempt = 0; attempt < attempts; attempt++) {
       try {
         return { json: await callGemini(body, model), model };
       } catch (err) {
         lastErr = err;
         if (!isBusy(err)) throw err;
-        if (attempt < 2) {
+        if (attempt < attempts - 1) {
           log.warn(`${model} gerade ueberlastet (HTTP ${err.status}) - neuer Versuch`);
           await sleep(2000 * 2 ** attempt);
         }
       }
     }
     const next = models[models.indexOf(model) + 1];
-    if (next) log.warn(`${model} bleibt ueberlastet - weiter mit ${next}`);
+    if (next) log.warn(`${model} ueberlastet (HTTP ${lastErr.status}) - weiter mit ${next}`);
   }
   throw lastErr;
 }

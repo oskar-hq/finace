@@ -326,6 +326,28 @@ internen Tokens zaehlen gegen `AI_MAX_TOKENS`. Sie stehen als
 `ai.usage.thinking_tokens` in der Ausgabe (im Testlauf 500–1.600 Stueck);
 unter 8.000 wird es damit schnell knapp.
 
+**Warum nur ein Anlauf beim grossen Modell:** der kostenlose Tarif deckelt die
+grossen Flash-Modelle bei **20 Anfragen pro Tag und 5 pro Minute**, die
+Lite-Modelle dagegen bei **500 bzw. 15**. Jeder Fehlversuch kostet also einen
+der 20 Tagesabrufe – Nachfassen lohnt erst dort, wo Wiederholungen billig sind.
+Deshalb: einmal beim Standardmodell anklopfen, dann auf das Lite-Modell
+wechseln und dort bis zu dreimal (2 s, 4 s).
+
+### Wenn der Morgenlauf ohne Texte bleibt
+
+Kurze Laeufe (`update:quick`) rufen die KI grundsaetzlich nicht auf – sie
+reichen die Texte des Volllaufs weiter. **Eine Ausnahme gibt es:** liegen fuer
+heute noch gar keine Texte vor, holt der naechste kurze Lauf den Call nach.
+
+Das ist kein Schoenheitsfehler, sondern der Normalfall bei einem kostenlosen
+Kontingent: ist der Dienst um 6:30 gerade ueberlastet, haette das Dashboard
+sonst den ganzen Tag keine Erklaerungen. So steht es spaetestens eine
+Viertelstunde spaeter da. Sobald ein Versuch klappt, ist wieder Ruhe.
+
+`AI_MAX_ATTEMPTS` (Standard 6) deckelt das: so viele fehlgeschlagene KI-Calls
+darf ein Tag haben, danach wird bis zum naechsten Morgen nicht mehr gefragt.
+Gezaehlt wird ueber die `runs`-Tabelle in der Datenbank.
+
 Der Gemini-Key geht als Header `x-goog-api-key` raus, nicht als
 Query-Parameter. So kann er gar nicht erst in einer URL landen, die irgendwo
 protokolliert wird. Angesprochen wird die REST-Schnittstelle direkt per
@@ -551,6 +573,11 @@ Ehrlich dazugesagt, damit klar ist, was hier bereits lief und was nicht:
   dann `gemini-flash-lite-latest`, und `ai.model` weist das aus). Das
   `HTTP 503` der grossen Flash-Modelle und das 404 auf `gemini-2.5-flash`
   wurden dabei real beobachtet – daher der Alias als Standard.
+  Das Nachholen in kurzen Laeufen ist gegen ein dauerhaft mit `503`
+  antwortendes Gemini geprueft: Volllauf scheitert, die folgenden kurzen Laeufe
+  holen nach, und nach `AI_MAX_ATTEMPTS` ist Schluss. Der Gegentest mit einem
+  antwortenden Dienst zeigt das erwartete Gegenstueck: ein Call, danach
+  `ai.status: "reused"` ohne weiteren Aufruf.
 * **Nicht getestet:** die tatsaechlichen HTTP-Abrufe bei Twelve Data, CBOE,
   Bundesbank, EZB, stooq, Yahoo, FRED, frankfurter und CoinGecko sowie der
   KI-Call bei Anthropic – die Entwicklungsumgebung erreicht keinen

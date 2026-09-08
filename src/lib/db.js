@@ -111,6 +111,18 @@ export function finishRun(db, runId, { okCount, failCount, aiStatus, note }) {
   ).run(new Date().toISOString(), okCount, failCount, aiStatus ?? null, note ?? null, runId);
 }
 
+/**
+ * Wie oft ist der KI-Call heute schon fehlgeschlagen?
+ *
+ * Grundlage fuer das Nachholen in kurzen Laeufen (siehe src/update.js): ein
+ * dauerhaft gestoerter Dienst soll nicht 96-mal am Tag angefragt werden.
+ */
+export function countFailedAiRuns(db, date) {
+  return db
+    .prepare("SELECT COUNT(*) AS n FROM runs WHERE ai_status = 'error' AND started_at >= ?")
+    .get(`${date}T00:00:00`).n;
+}
+
 /** Zuletzt verwendete Glossarbegriffe (neueste zuerst). */
 export function recentGlossaryTerms(db, limit = 20) {
   return db
