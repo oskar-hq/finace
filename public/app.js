@@ -341,7 +341,10 @@ function render(data) {
     problems.push(`Die Erklaerungen fehlen heute (${data.ai.error ?? 'unbekannter Fehler'}).`);
   } else if (data.ai?.status === 'skipped' && !data.demo && !KIOSK) {
     // Kein Fehler, sondern eine gueltige Betriebsart: Dashboard ohne KI.
-    hints.push('Dieses Dashboard laeuft ohne Erklaerungen (kein ANTHROPIC_API_KEY oder SKIP_AI=1).');
+    hints.push(
+      'Dieses Dashboard laeuft ohne Erklaerungen ' +
+        '(kein GEMINI_API_KEY / ANTHROPIC_API_KEY oder SKIP_AI=1).',
+    );
   }
   const failed = (data.metrics ?? []).filter((m) => m.status === 'unavailable');
   if (failed.length > 0) {
