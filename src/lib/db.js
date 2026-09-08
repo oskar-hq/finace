@@ -44,6 +44,12 @@ export function openDb(dbPath = config.dbPath) {
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   const db = new DatabaseSync(dbPath);
   db.exec('PRAGMA journal_mode = WAL;');
+  // Ohne busy_timeout bricht ein Lauf sofort mit "database is locked" ab, wenn
+  // ein anderer gerade schreibt. Genau das passiert einmal taeglich: um 6:30
+  // starten der volle und der kurze Lauf in derselben Sekunde (*/15 trifft die
+  // volle halbe Stunde). Lieber ein paar Sekunden warten als den Lauf
+  // verlieren - WAL allein hilft nur Lesern, nicht zwei Schreibern.
+  db.exec('PRAGMA busy_timeout = 15000;');
   db.exec(SCHEMA);
   return db;
 }

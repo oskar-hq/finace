@@ -6,7 +6,7 @@
  *   npm run update:quick      kurzer Lauf fuer haeufige Takte (z.B. alle 15 min)
  *
  * Ablauf: Marktdaten holen -> in SQLite speichern -> Veraenderungen berechnen
- *         -> ein Anthropic-Call fuer alle Erklaerungen -> public/data/latest.json
+ *         -> ein KI-Call fuer alle Erklaerungen -> public/data/latest.json
  *
  * --quick holt nur wenige Tage (QUICK_FETCH_DAYS) und laesst die KI aus. Die
  * Historie bleibt trotzdem vollstaendig, weil sie in der Datenbank steht - der
@@ -236,7 +236,9 @@ async function main() {
   db.close();
 
   log.info(
-    `Fertig: ${okCount} ok, ${failCount} fehlgeschlagen, KI ${ai.status}, ` +
+    // payload.ai.status statt ai.status: hat dieser Lauf die Texte des Tages
+    // uebernommen, steht dort "reused" - und im Log nicht mehr "skipped".
+    `Fertig: ${okCount} ok, ${failCount} fehlgeschlagen, KI ${payload.ai.status}, ` +
       `${Math.round((Date.now() - startedAt.getTime()) / 100) / 10}s -> ${config.outputPath}`,
   );
 

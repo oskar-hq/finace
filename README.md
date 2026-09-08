@@ -417,9 +417,17 @@ Fuer einen Monitor, der laufend aktuell sein soll, zwei Eintraege:
 # Einmal taeglich der volle Lauf: lange Historie, plus KI-Texte falls Key da.
 30 6 * * * cd /opt/finance-dashboard && /usr/bin/npm run update >> /var/log/finance-dashboard.log 2>&1
 
-# Alle 15 Minuten der kurze Lauf: nur die letzten Tage, nie ein KI-Call.
-*/15 * * * * cd /opt/finance-dashboard && /usr/bin/npm run update:quick >> /var/log/finance-dashboard.log 2>&1
+# Alle 15 Minuten der kurze Lauf, um 5 Minuten versetzt: nur die letzten Tage.
+5,20,35,50 * * * * cd /opt/finance-dashboard && /usr/bin/npm run update:quick >> /var/log/finance-dashboard.log 2>&1
 ```
+
+**Der Versatz ist Absicht.** Mit `*/15` faellt der kurze Lauf einmal taeglich
+genau auf die 6:30 des Volllaufs. Beide starten dann in derselben Sekunde,
+greifen gleichzeitig auf dieselbe SQLite-Datei zu, und einer von beiden bricht
+mit `database is locked` ab. Seit `PRAGMA busy_timeout` wartet der zweite
+Lauf, statt zu sterben – aber dann holt er dieselben Daten ein zweites Mal und
+verbraucht Abrufe bei Twelve Data. Fuenf Minuten Versatz kosten nichts und
+ersparen beides.
 
 `update:quick` holt nur `QUICK_FETCH_DAYS` (Standard 10) statt 180 Tage und
 ueberspringt die KI grundsaetzlich. Die lange Historie bleibt erhalten, weil sie
@@ -578,6 +586,10 @@ Ehrlich dazugesagt, damit klar ist, was hier bereits lief und was nicht:
   holen nach, und nach `AI_MAX_ATTEMPTS` ist Schluss. Der Gegentest mit einem
   antwortenden Dienst zeigt das erwartete Gegenstueck: ein Call, danach
   `ai.status: "reused"` ohne weiteren Aufruf.
+  Der `busy_timeout` ist mit zwei echten Prozessen geprueft: einer haelt die
+  Schreibsperre drei Sekunden, der andere will hinein. Ohne die Einstellung
+  bricht er nach 0,0 s mit `database is locked` ab (genau die Meldung aus dem
+  Server-Log), mit ihr wartet er und schreibt.
 * **Nicht getestet:** die tatsaechlichen HTTP-Abrufe bei Twelve Data, CBOE,
   Bundesbank, EZB, stooq, Yahoo, FRED, frankfurter und CoinGecko sowie der
   KI-Call bei Anthropic – die Entwicklungsumgebung erreicht keinen
