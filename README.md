@@ -404,6 +404,27 @@ erscheinen trotzdem, oben steht dann ein Hinweis mit der Fehlerursache.
 crontab -e
 ```
 
+**Zuerst die Zeitzone klaeren.** Cron richtet sich nach der Systemzeit des
+Containers, und ein frisch aufgesetzter LXC steht meist auf UTC. `30 6 * * *`
+feuert dann im Sommer erst um 8:30 Ortszeit – wer morgens um sieben aufs
+Dashboard schaut, sieht die Texte des Vortags nicht und die von heute noch
+nicht. Entweder den Container umstellen:
+
+```bash
+timedatectl set-timezone Europe/Berlin
+```
+
+… oder, ohne das System anzufassen, als erste Zeile in den Crontab:
+
+```cron
+CRON_TZ=Europe/Berlin
+```
+
+Beides folgt automatisch der Sommerzeit. Die Logzeilen bleiben davon
+unberuehrt: `src/lib/log.js` schreibt bewusst UTC, wie alle Zeitangaben im
+Projekt. Zwischen Logzeit und Wanduhr liegen also im Sommer zwei Stunden – das
+ist Absicht, aber gut zu wissen, bevor man einen Lauf fuer ausgefallen haelt.
+
 Fuer ein Dashboard, das man einmal am Tag anschaut, reicht ein Lauf:
 
 ```cron
